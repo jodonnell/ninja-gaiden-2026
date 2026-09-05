@@ -1,0 +1,107 @@
+{ "frames": {
+   "bishop-b-trim.png": {
+    "frame": { "x": 0, "y": 93, "w": 92, "h": 94 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 92, "h": 94 },
+    "sourceSize": { "w": 92, "h": 94 },
+    "duration": 100
+   },
+   "bishop-w-trim.png": {
+    "frame": { "x": 92, "y": 93, "w": 92, "h": 94 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 92, "h": 94 },
+    "sourceSize": { "w": 92, "h": 94 },
+    "duration": 100
+   },
+   "king-b-trim.png": {
+    "frame": { "x": 208, "y": 0, "w": 94, "h": 94 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 94, "h": 94 },
+    "sourceSize": { "w": 94, "h": 94 },
+    "duration": 100
+   },
+   "king-w-trim.png": {
+    "frame": { "x": 302, "y": 0, "w": 94, "h": 94 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 94, "h": 94 },
+    "sourceSize": { "w": 94, "h": 94 },
+    "duration": 100
+   },
+   "knight-b-trim.png": {
+    "frame": { "x": 184, "y": 94, "w": 90, "h": 90 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 90, "h": 90 },
+    "sourceSize": { "w": 90, "h": 90 },
+    "duration": 100
+   },
+   "knight-w-trim.png": {
+    "frame": { "x": 274, "y": 94, "w": 90, "h": 90 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 90, "h": 90 },
+    "sourceSize": { "w": 90, "h": 90 },
+    "duration": 100
+   },
+   "pawn-b-trim.png": {
+    "frame": { "x": 336, "y": 184, "w": 66, "h": 86 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 66, "h": 86 },
+    "sourceSize": { "w": 66, "h": 86 },
+    "duration": 100
+   },
+   "pawn-w-trim.png": {
+    "frame": { "x": 0, "y": 187, "w": 66, "h": 86 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 66, "h": 86 },
+    "sourceSize": { "w": 66, "h": 86 },
+    "duration": 100
+   },
+   "queen-b-trim.png": {
+    "frame": { "x": 0, "y": 0, "w": 104, "h": 93 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 104, "h": 93 },
+    "sourceSize": { "w": 104, "h": 93 },
+    "duration": 100
+   },
+   "queen-w-trim.png": {
+    "frame": { "x": 104, "y": 0, "w": 104, "h": 93 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 104, "h": 93 },
+    "sourceSize": { "w": 104, "h": 93 },
+    "duration": 100
+   },
+   "rook-b-trim.png": {
+    "frame": { "x": 184, "y": 184, "w": 76, "h": 84 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 76, "h": 84 },
+    "sourceSize": { "w": 76, "h": 84 },
+    "duration": 100
+   },
+   "rook-w-trim.png": {
+    "frame": { "x": 260, "y": 184, "w": 76, "h": 84 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 76, "h": 84 },
+    "sourceSize": { "w": 76, "h": 84 },
+    "duration": 100
+   }
+ },
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.6-arm64",
+  "image": "pieces-spritesheet.png",
+  "format": "RGBA8888",
+  "size": { "w": 402, "h": 273 },
+  "scale": "1"
+ }
+}
