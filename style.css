@@ -1,4 +1,469 @@
+@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+:root {
+  font-family: "IBM Plex Mono", monospace;
+  color: #e9e6dc;
+  background: #111313;
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
 body {
   margin: 0;
+  background: radial-gradient(ellipse at 50% 40%, #1c2120 0, #111313 65%);
+  min-height: 100vh;
 }
-
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  font: inherit;
+  cursor: pointer;
+}
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #dbff8a;
+  outline-offset: 5px;
+}
+.arcade {
+  max-width: 1160px;
+  padding: 0 40px;
+  margin: auto;
+}
+header {
+  height: 94px;
+  border-bottom: 1px solid #303532;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.brand {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: #e9e6dc;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.brand-mark {
+  font-size: 26px;
+  color: #dfff94;
+  margin-right: 11px;
+}
+.brand-light {
+  color: #72806d;
+}
+.edition {
+  font-size: 10px;
+  letter-spacing: 1.4px;
+  color: #90968c;
+}
+.dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  background: #d6fa93;
+  border-radius: 50%;
+  margin: 0 13px;
+}
+.heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 36px 0 30px;
+}
+.eyebrow,
+.section-label {
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: #aac27e;
+}
+.eyebrow {
+  margin-bottom: 10px;
+}
+h1 {
+  font-family: "Barlow Condensed", "Arial Narrow", Impact, sans-serif;
+  font-size: 44px;
+  line-height: 1;
+  margin: 0;
+  letter-spacing: 0.4px;
+  font-weight: 800;
+}
+h1 span {
+  font-size: 19px;
+  vertical-align: middle;
+  margin: 0 9px;
+  color: #98a18d;
+}
+.heading p {
+  font-size: 11px;
+  color: #8d938a;
+  margin: 13px 0 0;
+}
+.stage-label {
+  text-align: right;
+  display: grid;
+  gap: 8px;
+}
+.stage-label span {
+  font-size: 9px;
+  color: #a7bc85;
+  letter-spacing: 2px;
+}
+.stage-label strong {
+  font-size: 11px;
+  font-weight: 500;
+}
+.stage-label small {
+  font-size: 9px;
+  color: #656e67;
+  letter-spacing: 1px;
+}
+.cabinet {
+  border: 1px solid #414b3d;
+  box-shadow: 0 18px 65px #0006;
+  background: #090f13;
+}
+.cabinet-bar {
+  height: 40px;
+  background: #20261f;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  font-size: 9px;
+  letter-spacing: 1.4px;
+  color: #c6d3b3;
+}
+.cabinet-bar i {
+  display: inline-block;
+  background: #c4ec89;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+.cabinet-bar > div {
+  display: flex;
+  height: 100%;
+  gap: 22px;
+}
+.cabinet-bar button {
+  background: none;
+  border: 0;
+  color: #9ca791;
+  font-size: 9px;
+  letter-spacing: 1px;
+  padding: 0;
+}
+.cabinet-bar button:hover {
+  color: #dfff94;
+}
+#screen {
+  position: relative;
+  aspect-ratio: 16/9;
+  overflow: hidden;
+  background: #0a1320;
+}
+#game,
+#game canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+}
+.scanlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    #0002 3px,
+    #0002 4px
+  );
+  opacity: 0.5;
+}
+#overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(90deg, #05101d55, #09101b77, #05101d55);
+  text-align: center;
+}
+#overlay.hidden {
+  display: none;
+}
+.overlay-kicker {
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: #b2c1b7;
+  margin-bottom: 18px;
+}
+h2 {
+  font-family: "Barlow Condensed", Impact, sans-serif;
+  font-style: italic;
+  font-size: 80px;
+  font-weight: 900;
+  line-height: 0.74;
+  letter-spacing: 5px;
+  color: #edf0db;
+  text-shadow: 4px 4px #09202c;
+  margin: 0;
+}
+h2 em {
+  font-size: 35px;
+  letter-spacing: 6px;
+  color: #daf597;
+  font-style: normal;
+}
+.title-rule {
+  width: 42px;
+  height: 2px;
+  background: #d4ed99;
+  margin: 24px 0 0;
+}
+#overlay p {
+  font-size: 11px;
+  color: #bbc7c4;
+  line-height: 1.9;
+  margin: 17px 0 22px;
+}
+#start {
+  background: #d8f79e;
+  color: #202b24;
+  border: 0;
+  padding: 16px 24px;
+  font-size: 10px;
+  letter-spacing: 1.6px;
+  font-weight: 600;
+  box-shadow: 4px 4px #08131c;
+}
+#start:hover {
+  background: #e9ffbf;
+  transform: translateY(-1px);
+}
+#start span {
+  margin-left: 24px;
+}
+#overlay > small {
+  font-size: 8px;
+  letter-spacing: 2px;
+  margin-top: 14px;
+  color: #93a69f;
+}
+.cabinet-footer {
+  padding: 13px 17px;
+  display: flex;
+  justify-content: space-between;
+  background: #191e1a;
+  font-size: 8px;
+  color: #778170;
+  letter-spacing: 1px;
+}
+.cabinet-footer b {
+  color: #d5ee9c;
+  margin-right: 7px;
+}
+.cabinet-footer i {
+  font-style: normal;
+  margin: 0 11px;
+  color: #44523e;
+}
+.below {
+  display: flex;
+  justify-content: space-between;
+  padding: 27px 0 28px;
+  border-bottom: 1px solid #303532;
+}
+.section-label {
+  color: #808d78;
+  letter-spacing: 1.4px;
+  font-size: 8px;
+}
+.keys {
+  display: flex;
+  gap: 21px;
+  margin-top: 14px;
+}
+.keys > div {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+kbd {
+  border: 1px solid #495044;
+  border-bottom: 3px solid #495044;
+  border-radius: 3px;
+  min-width: 25px;
+  height: 25px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #c9d0bc;
+  font:
+    10px "IBM Plex Mono",
+    monospace;
+  padding: 0 5px;
+  background: #20261f;
+}
+.keys span {
+  font-size: 9px;
+  margin-left: 4px;
+  color: #a3ad99;
+}
+.tip {
+  border-left: 1px solid #303532;
+  padding-left: 27px;
+}
+.tip p {
+  font-size: 10px;
+  color: #9ca692;
+  line-height: 1.8;
+  margin: 9px 0 0;
+}
+footer {
+  padding: 23px 0;
+  display: flex;
+  justify-content: space-between;
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: #596451;
+}
+footer b {
+  color: #a5bd79;
+  margin-left: 12px;
+}
+.touch-controls {
+  display: none;
+}
+#screen:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  aspect-ratio: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#screen:fullscreen #game {
+  width: min(100vw, 177.78vh);
+  height: min(100vh, 56.25vw);
+}
+@media (max-width: 800px) {
+  .arcade {
+    padding: 0 18px;
+  }
+  header {
+    height: 65px;
+  }
+  .edition {
+    display: none;
+  }
+  .heading {
+    padding: 25px 0;
+  }
+  h1 {
+    font-size: 32px;
+  }
+  h1 span {
+    font-size: 13px;
+  }
+  .stage-label {
+    display: none;
+  }
+  .below {
+    display: block;
+  }
+  .keys {
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .tip {
+    display: none;
+  }
+  h2 {
+    font-size: 55px;
+  }
+  h2 em {
+    font-size: 22px;
+  }
+  .overlay-kicker {
+    display: none;
+  }
+  #overlay p {
+    margin: 10px 0;
+    font-size: 9px;
+  }
+  .title-rule {
+    margin-top: 14px;
+  }
+  #start {
+    padding: 12px 18px;
+  }
+  #overlay > small {
+    font-size: 7px;
+    margin-top: 8px;
+  }
+  footer {
+    font-size: 7px;
+  }
+  footer > span:last-child {
+    display: none;
+  }
+  .cabinet-bar {
+    padding: 0 10px;
+    font-size: 7px;
+  }
+  .cabinet-footer {
+    font-size: 7px;
+  }
+  .cabinet-footer > span:last-child {
+    display: none;
+  }
+  .touch-controls {
+    display: flex;
+    gap: 8px;
+    padding-top: 15px;
+  }
+  .touch-controls button {
+    flex: 1;
+    background: #242c22;
+    color: #d8edb6;
+    border: 1px solid #4b5941;
+    padding: 14px 0;
+    touch-action: none;
+    font-size: 10px;
+  }
+}
+@media (max-width: 480px) {
+  h2 {
+    font-size: 38px;
+  }
+  h2 em {
+    font-size: 16px;
+    letter-spacing: 3px;
+  }
+  #overlay p {
+    display: none;
+  }
+  .title-rule {
+    margin: 12px 0;
+  }
+  #start {
+    font-size: 8px;
+    padding: 10px;
+  }
+  #overlay > small {
+    font-size: 6px;
+  }
+  .cabinet-bar button span {
+    display: none;
+  }
+}
