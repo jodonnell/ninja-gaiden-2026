@@ -1,9 +1,19 @@
+import overworldUrl from "../../assets/overworld-sheet.png"
+import {
+  drawOverworld,
+  locations,
+  locationAt,
+  spawn,
+  walkable,
+} from "./overworld"
+import type { Location } from "./overworld"
 import { WallJumpGrace } from "./wall-jump"
 import { ninjaFrame } from "./animation"
 import type { NinjaPose } from "./animation"
 import { patrolDirection } from "./enemies"
 import { Application, Sprite, Texture } from "pixi.js"
 import ryuUrl from "../../assets/ryu-sheet.png"
+import enemiesUrl from "../../assets/enemies-sheet.png"
 import {
   WIDTH as W,
   HEIGHT as H,
@@ -33,6 +43,8 @@ type Particle = {
 }
 type Shot = Rect & { vx: number; vy: number; hostile: boolean; life: number }
 type Pickup = Rect & { kind: "health" | "ammo"; taken: boolean }
+const SWORD_ATTACK_SECONDS = 0.23
+
 export async function startGame() {
   const app = new Application()
   await app.init({
@@ -56,32 +68,84 @@ export async function startGame() {
   const texture = Texture.from(canvas)
   texture.source.scaleMode = "nearest"
   app.stage.addChild(new Sprite(texture))
-  const sheet = new Image()
-  sheet.src = ryuUrl
-  await sheet.decode()
-  const spriteSheet = document.createElement("canvas")
-  spriteSheet.width = sheet.width
-  spriteSheet.height = sheet.height
-  const sc = spriteSheet.getContext("2d")!
-  sc.drawImage(sheet, 0, 0)
-  const pixels = sc.getImageData(0, 0, sheet.width, sheet.height)
-  const bg = pixels.data.slice(
-    (40 * sheet.width + 400) * 4,
-    (40 * sheet.width + 400) * 4 + 3,
-  )
-  for (let i = 0; i < pixels.data.length; i += 4)
-    if (
-      pixels.data[i] === bg[0] &&
-      pixels.data[i + 1] === bg[1] &&
-      pixels.data[i + 2] === bg[2]
-    )
-      pixels.data[i + 3] = 0
-  sc.putImageData(pixels, 0, 0)
+  async function loadSpriteSheet(url: string): Promise<HTMLCanvasElement> {
+    const sheet = new Image()
+    sheet.src = url
+    await sheet.decode()
+    const result = document.createElement("canvas")
+    result.width = sheet.width
+    result.height = sheet.height
+    const sc = result.getContext("2d")!
+    sc.drawImage(sheet, 0, 0)
+    const pixels = sc.getImageData(0, 0, sheet.width, sheet.height)
+    const bg = pixels.data.slice(0, 3)
+    for (let i = 0; i < pixels.data.length; i += 4)
+      if (
+        pixels.data[i] === bg[0] &&
+        pixels.data[i + 1] === bg[1] &&
+        pixels.data[i + 2] === bg[2]
+      )
+        pixels.data[i + 3] = 0
+    sc.putImageData(pixels, 0, 0)
+    return result
+  }
+  const [spriteSheet, enemySheet] = await Promise.all([
+    loadSpriteSheet(ryuUrl),
+    loadSpriteSheet(enemiesUrl),
+  ])
+  const overworldSheet = new Image()
+  overworldSheet.src = overworldUrl
+  await overworldSheet.decode()
   const overlay = document.querySelector<HTMLDivElement>("#overlay")!
   const status = document.querySelector("#status")!
   const keys = new Set<string>()
   const pressed = new Set<string>()
-  let state: "title" | "playing" | "paused" | "dead" | "won" = "title"
+  let state:
+    "overworld" | "transition" | "playing" | "paused" | "dead" | "won" =
+    "overworld"
+  let pausedFrom: "overworld" | "playing" = "overworld"
+  let activeLocation = locations[0]
+  const cleared = new Set<number>()
+  let mapPosition = { ...spawn }
+  const mapVisual = { ...spawn }
+  let mapCooldown = 0
+  let transitionTime = 0
+  let stagePlatforms = platforms
+  function stageLabel() {
+    return `0${activeLocation.id + 1} — ${activeLocation.name}`
+  }
+  function setLabel(label: string) {
+    document.querySelector(".stage-label strong")!.textContent = label
+    document.querySelector(".stage-label small")!.textContent =
+      state === "overworld"
+        ? "SHADOW PROVINCE / WORLD MAP"
+        : "SIDE-SCROLLING MISSION"
+    status.textContent = label
+  }
+  function returnToMap() {
+    if (lives <= 0) reset(true)
+    state = "overworld"
+    overlay.classList.add("hidden")
+    keys.clear()
+    pressed.clear()
+    mapCooldown = 0.2
+    setLabel("SHADOW PROVINCE — WORLD MAP")
+  }
+  function enterStage(location: Location) {
+    activeLocation = location
+    checkpoint = 0
+    stagePlatforms = platforms.map((p, i) => ({
+      ...p,
+      y: p.y - (p.h === 12 ? location.id * (i % 2 ? 5 : 8) : 0),
+    }))
+    reset(false)
+    state = "transition"
+    transitionTime = 0.7
+    keys.clear()
+    pressed.clear()
+    setLabel(stageLabel())
+    beep(660, 0.15, "triangle")
+  }
   let player: Body
   let enemies: Enemy[] = []
   let particles: Particle[] = []
@@ -97,11 +161,15 @@ export async function startGame() {
     attack = 0,
     throwCooldown = 0,
     invincible = 0,
+    knockbackTime = 0,
+    knockbackVelocity = 0,
     facing = 1,
     coyote = 0,
     jumpBuffer = 0,
     wallJumpLock = 0,
     playerStride = 0,
+    playerAirTime = 0,
+    playerClimbDistance = 0,
     checkpoint = 0,
     shake = 0,
     attackId = 0
@@ -180,7 +248,7 @@ export async function startGame() {
       vy: 0,
       grounded: false,
       wall: 0,
-      hp: 24,
+      hp: 24 + activeLocation.id * 4,
       kind: "boss",
       stride: 0,
       home: 3090,
@@ -198,6 +266,9 @@ export async function startGame() {
       { x: 2430, y: 119, w: 10, h: 12, kind: "ammo", taken: false },
       { x: 2750, y: 199, w: 10, h: 12, kind: "health", taken: false },
     ]
+    pickups.forEach((pickup, i) => {
+      if (i < 7) pickup.y -= activeLocation.id * (i % 2 ? 5 : 8)
+    })
   }
   function reset(full: boolean) {
     if (full) {
@@ -225,15 +296,20 @@ export async function startGame() {
     wallJumpLock = 0
     wallJumpGrace.reset()
     playerStride = 0
+    playerAirTime = 0
+    playerClimbDistance = 0
     coyote = 0
     jumpBuffer = 0
     facing = 1
     throwCooldown = 0
     invincible = 1
+    knockbackTime = 0
+    knockbackVelocity = 0
     hitEnemies.clear()
     populate()
   }
   reset(true)
+  returnToMap()
   function show(title: string, subtitle: string, button: string) {
     overlay.classList.remove("hidden")
     overlay.querySelector("h2")!.innerHTML = title
@@ -244,27 +320,36 @@ export async function startGame() {
     overlay.querySelector("small")!.textContent = "PRESS ENTER TO CONTINUE"
   }
   function begin() {
-    if (state === "playing") return
+    if (state === "playing" || state === "overworld" || state === "transition")
+      return
     if (state === "paused") {
-      state = "playing"
+      state = pausedFrom
+      if (state === "overworld") return returnToMap()
+    } else if (state === "won" || (state === "dead" && lives <= 0)) {
+      if (lives <= 0) reset(true)
+      return returnToMap()
     } else {
-      reset(state !== "dead" || lives <= 0)
+      reset(false)
       state = "playing"
     }
     overlay.classList.add("hidden")
     keys.clear()
     pressed.clear()
-    status.textContent = "STAGE 01 — THE NEON DISTRICT"
+    setLabel(stageLabel())
     beep(440)
   }
   function pause() {
-    if (state === "playing") {
+    if (state === "playing" || state === "overworld") {
+      pausedFrom = state
       state = "paused"
       keys.clear()
-      show("PAUSED", "Take a breath. The shadows can wait.", "RESUME MISSION")
+      show("PAUSED", "Take a breath. The shadows can wait.", "RESUME")
       status.textContent = "PAUSED"
     } else if (state === "paused") begin()
   }
+  document.querySelector("#world-map")!.addEventListener("click", () => {
+    if (state !== "transition") returnToMap()
+  })
   document.querySelector("#start")!.addEventListener("click", begin)
   const valid = [
     "ArrowLeft",
@@ -282,11 +367,16 @@ export async function startGame() {
     "Enter",
     "Escape",
     "KeyP",
+    "KeyM",
   ]
   window.addEventListener("keydown", (e) => {
     if (!valid.includes(e.code)) return
     e.preventDefault()
     if (!e.repeat) {
+      if (e.code === "KeyM" && state !== "transition") {
+        returnToMap()
+        return
+      }
       if (e.code === "Enter") {
         begin()
         return
@@ -303,10 +393,11 @@ export async function startGame() {
   window.addEventListener("blur", () => {
     keys.clear()
     pressed.clear()
-    if (state === "playing") pause()
+    if (state === "playing" || state === "overworld") pause()
   })
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden && state === "playing") pause()
+    if (document.hidden && (state === "playing" || state === "overworld"))
+      pause()
   })
   document
     .querySelectorAll<HTMLButtonElement>("[data-key]")
@@ -366,8 +457,14 @@ export async function startGame() {
     if (invincible > 0) return
     hp -= amount
     invincible = 1.25
-    player.vx = player.x < from ? -140 : 140
-    player.vy = -145
+    knockbackTime = 0.38
+    knockbackVelocity = player.x < from ? -155 : 155
+    player.vx = knockbackVelocity
+    player.vy = -175
+    wallJumpLock = 0
+    wallJumpGrace.reset()
+    jumpBuffer = 0
+    coyote = 0
     shake = 0.18
     burst(player.x + 7, player.y + 12, "#f3cb9e")
     beep(130, 0.15, "sawtooth")
@@ -382,13 +479,14 @@ export async function startGame() {
       score += e.kind === "boss" ? 5000 : e.kind === "bird" ? 150 : 200
       burst(e.x, e.y, "#e77b65", 20)
       if (e.kind === "boss") {
+        cleared.add(activeLocation.id)
         state = "won"
         show(
           "DAWN BREAKS",
           "The Black Lotus has fallen. Score " +
             score.toString().padStart(6, "0") +
             ".",
-          "PLAY AGAIN",
+          "RETURN TO WORLD MAP",
         )
         status.textContent = "STAGE CLEAR"
       }
@@ -401,6 +499,7 @@ export async function startGame() {
     if (p) {
       if (p.axes[0] < -0.3 || p.buttons[14]?.pressed) next.add("ArrowLeft")
       if (p.axes[0] > 0.3 || p.buttons[15]?.pressed) next.add("ArrowRight")
+      if (p.axes[1] > 0.3 || p.buttons[13]?.pressed) next.add("ArrowDown")
       if (p.axes[1] < -0.3 || p.buttons[12]?.pressed) next.add("ArrowUp")
       if (p.buttons[0]?.pressed) next.add("KeyZ")
       if (p.buttons[2]?.pressed || p.buttons[1]?.pressed) next.add("KeyX")
@@ -412,7 +511,7 @@ export async function startGame() {
       keys.add(k)
       if (!previousPad.has(k)) {
         if (k === "Enter") {
-          if (state === "playing") pause()
+          if (state === "playing" || state === "overworld") pause()
           else begin()
         } else pressed.add(k)
       }
@@ -422,6 +521,34 @@ export async function startGame() {
   function update(dt: number) {
     gamepad()
     age += dt
+    if (state === "transition") {
+      transitionTime -= dt
+      if (transitionTime <= 0) state = "playing"
+      pressed.clear()
+      return
+    }
+    if (state === "overworld") {
+      mapCooldown -= dt
+      mapVisual.x += (mapPosition.x - mapVisual.x) * Math.min(1, dt * 22)
+      mapVisual.y += (mapPosition.y - mapVisual.y) * Math.min(1, dt * 22)
+      if (mapCooldown <= 0) {
+        const dx =
+          Number(keys.has("ArrowRight") || keys.has("KeyD")) -
+          Number(keys.has("ArrowLeft") || keys.has("KeyA"))
+        const dy = dx
+          ? 0
+          : Number(keys.has("ArrowDown") || keys.has("KeyS")) -
+            Number(keys.has("ArrowUp") || keys.has("KeyW"))
+        if ((dx || dy) && walkable(mapPosition.x + dx, mapPosition.y + dy)) {
+          mapPosition = { x: mapPosition.x + dx, y: mapPosition.y + dy }
+          mapCooldown = 0.14
+          const location = locationAt(mapPosition.x, mapPosition.y)
+          if (location) enterStage(location)
+        }
+      }
+      pressed.clear()
+      return
+    }
     if (state !== "playing") {
       pressed.clear()
       return
@@ -434,6 +561,7 @@ export async function startGame() {
     attack = Math.max(0, attack - dt)
     throwCooldown -= dt
     invincible -= dt
+    knockbackTime = Math.max(0, knockbackTime - dt)
     shake -= dt
     const axis =
       (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0) -
@@ -442,14 +570,18 @@ export async function startGame() {
     wallJumpGrace.update(wall, player.grounded, dt)
     const jumpWall = wallJumpGrace.direction
     wallJumpLock = Math.max(0, wallJumpLock - dt)
-    if (invincible < 1 && wallJumpLock === 0) player.vx = axis * 118
+    if (knockbackTime > 0) {
+      // Preserve the launch, then ease back to input over the final 140 ms.
+      const recoilWeight = Math.min(1, knockbackTime / 0.14) ** 2
+      player.vx = axis * 118 + (knockbackVelocity - axis * 118) * recoilWeight
+    } else if (wallJumpLock === 0) player.vx = axis * 118
     if (axis) facing = axis
     coyote = player.grounded ? 0.1 : Math.max(0, coyote - dt)
     jumpBuffer =
       pressed.has("KeyZ") || pressed.has("Space")
         ? 0.12
         : Math.max(0, jumpBuffer - dt)
-    if (jumpBuffer > 0 && (coyote > 0 || jumpWall)) {
+    if (knockbackTime === 0 && jumpBuffer > 0 && (coyote > 0 || jumpWall)) {
       player.vy = -282
       if (jumpWall) {
         player.vx = -jumpWall * 155
@@ -461,25 +593,37 @@ export async function startGame() {
       coyote = 0
       beep(560, 0.1, "triangle")
     }
-    if (!keys.has("KeyZ") && !keys.has("Space") && player.vy < -110)
+    // Jump-release gravity must not cut short the damage recoil arc.
+    if (
+      knockbackTime === 0 &&
+      !keys.has("KeyZ") &&
+      !keys.has("Space") &&
+      player.vy < -110
+    )
       player.vy += 950 * dt
     player.vy += 730 * dt
     if (
       wall &&
       axis === wall &&
+      knockbackTime === 0 &&
       wallJumpLock === 0 &&
       (player.vy >= 0 || keys.has("ArrowUp") || keys.has("KeyW"))
     ) {
       player.vy =
         keys.has("ArrowUp") || keys.has("KeyW")
           ? -85
-          : keys.has("ArrowDown")
+          : keys.has("ArrowDown") || keys.has("KeyS")
             ? 75
             : 15
     }
     const previousPlayerX = player.x
-    move(player, dt)
+    const previousPlayerY = player.y
+    move(player, dt, stagePlatforms)
     if (player.grounded) playerStride += Math.abs(player.x - previousPlayerX)
+    playerAirTime = player.grounded || player.wall ? 0 : playerAirTime + dt
+    playerClimbDistance = player.wall
+      ? playerClimbDistance + Math.abs(player.y - previousPlayerY)
+      : 0
     if (player.y > H + 40) {
       die()
       return
@@ -490,7 +634,7 @@ export async function startGame() {
       beep(880, 0.2, "triangle")
     }
     if (pressed.has("KeyX") && attack === 0) {
-      attack = 0.23
+      attack = SWORD_ATTACK_SECONDS
       attackId++
       beep(720, 0.07, "sawtooth")
     }
@@ -557,7 +701,7 @@ export async function startGame() {
         }
         e.vy += 730 * dt
         const previousEnemyX = e.x
-        move(e, dt)
+        move(e, dt, stagePlatforms)
         if (e.grounded) e.stride += Math.abs(e.x - previousEnemyX)
       }
       if (
@@ -600,8 +744,33 @@ export async function startGame() {
       Math.min(1, dt * 9)
     pressed.clear()
   }
+  // Swap a few environment colors directly. A canvas filter on every tile,
+  // window, and rain streak creates hundreds of costly filtered draws per frame.
+  const stagePalettes: Record<string, string>[] = [
+    {},
+    {
+      "#0b1729": "#102523",
+      "#14293c": "#1b3931",
+      "#243e4c": "#305244",
+      "#12252d": "#18352b",
+      "#6a8b84": "#98b588",
+      "#354d4b": "#4b6450",
+      "#101e33": "#152d27",
+      "#172c3b": "#234136",
+    },
+    {
+      "#0b1729": "#261626",
+      "#14293c": "#3c253b",
+      "#243e4c": "#563746",
+      "#12252d": "#33212e",
+      "#6a8b84": "#bb8b83",
+      "#354d4b": "#64454b",
+      "#101e33": "#2c1c31",
+      "#172c3b": "#41293c",
+    },
+  ]
   function rect(x: number, y: number, w: number, h: number, c: string) {
-    ctx.fillStyle = c
+    ctx.fillStyle = stagePalettes[activeLocation.id][c] ?? c
     ctx.fillRect(Math.round(x), Math.round(y), w, h)
   }
   function poly(points: number[], c: string) {
@@ -705,7 +874,7 @@ export async function startGame() {
     }
   }
   function terrain() {
-    for (const p of platforms) {
+    for (const p of stagePlatforms) {
       const x = p.x - cam
       if (x > W || x + p.w < 0) continue
       rect(x, p.y, p.w, p.h, "#12252d")
@@ -765,17 +934,61 @@ export async function startGame() {
     frame: NinjaPose,
     enemy = false,
     stride = playerStride,
+    airTime = playerAirTime,
   ) {
-    const f = ninjaFrame(frame, stride)
+    const f = ninjaFrame(frame, stride, airTime, playerClimbDistance)
     ctx.save()
     ctx.translate(Math.round(x + 7), Math.round(y + 28))
     // The climbing pose faces left in the sheet; other poses face right.
     ctx.scale(frame === "climb" ? -dir : dir, 1)
     if (enemy) ctx.filter = "hue-rotate(135deg) saturate(0.8)"
-    ctx.drawImage(spriteSheet, f.x, f.y, f.w, f.h, -f.pivot, -f.h, f.w, f.h)
+    if (frame === "runSlash") {
+      // Join the slash torso and the current stride at a shared waistline.
+      // Using the same distance as normal running preserves the foot cycle.
+      const legs = ninjaFrame("run", stride)
+      const legHeight = 14
+      ctx.drawImage(
+        spriteSheet,
+        legs.x,
+        legs.y + legs.h - legHeight,
+        legs.w,
+        legHeight,
+        -legs.pivot,
+        -legHeight,
+        legs.w,
+        legHeight,
+      )
+      const torsoHeight = f.h - legHeight
+      ctx.drawImage(
+        spriteSheet,
+        f.x,
+        f.y,
+        f.w,
+        torsoHeight,
+        -f.pivot,
+        -f.h,
+        f.w,
+        torsoHeight,
+      )
+    } else {
+      ctx.drawImage(spriteSheet, f.x, f.y, f.w, f.h, -f.pivot, -f.h, f.w, f.h)
+    }
     ctx.restore()
   }
   function draw() {
+    if (
+      state === "overworld" ||
+      state === "transition" ||
+      (state === "paused" && pausedFrom === "overworld")
+    ) {
+      drawOverworld(ctx, overworldSheet, mapVisual, age, cleared)
+      if (state === "transition") {
+        rect(0, 0, W, H, `rgba(5,12,22,${1 - transitionTime / 0.7})`)
+        text(stageLabel(), 90, 132, "#f5e2b4", 12)
+      }
+      texture.source.update()
+      return
+    }
     ctx.save()
     if (shake > 0 && state === "playing")
       ctx.translate(Math.round(Math.sin(age * 120) * 2), 0)
@@ -794,29 +1007,31 @@ export async function startGame() {
       const x = e.x - cam
       if (e.flash > 0 && Math.floor(age * 35) % 2 === 0) continue
       if (e.kind === "bird") {
-        poly(
-          [
-            x - 7,
-            e.y - 5 - Math.sin(age * 18) * 5,
-            x + 7,
-            e.y + 4,
-            x + 25,
-            e.y - 8 - Math.sin(age * 18) * 5,
-            x + 17,
-            e.y + 9,
-            x + 5,
-            e.y + 11,
-          ],
-          "#96728d",
-        )
-        rect(x + 3, e.y + 5, 6, 4, "#efc196")
+        // The sheet's eagles face right. Mirror for their leftward flight.
+        const wingsUp = Math.floor(e.timer * 8) % 2 === 0
+        ctx.save()
+        ctx.translate(Math.round(x + e.w / 2), Math.round(e.y))
+        ctx.scale(e.dir, 1)
+        if (wingsUp)
+          ctx.drawImage(enemySheet, 144, 190, 23, 33, -13, -20, 23, 33)
+        else ctx.drawImage(enemySheet, 173, 205, 22, 20, -13, -9, 22, 20)
+        ctx.restore()
       } else if (e.kind === "boss") {
         ctx.save()
         ctx.translate(x, e.y)
         ctx.scale(1.5, 1.35)
         ninja(0, 0, e.dir, "slash", true)
         ctx.restore()
-      } else ninja(x, e.y, e.dir, e.grounded ? "run" : "jump", true, e.stride)
+      } else
+        ninja(
+          x,
+          e.y,
+          e.dir,
+          e.grounded ? "run" : "jump",
+          true,
+          e.stride,
+          e.timer,
+        )
     }
     for (const s of shots) {
       const x = s.x - cam + 4,
@@ -830,13 +1045,15 @@ export async function startGame() {
       )
       ctx.restore()
     }
-    if (invincible <= 0 || Math.floor(age * 18) % 2 === 0 || state === "title")
+    if (invincible <= 0 || Math.floor(age * 18) % 2 === 0)
       ninja(
         player.x - cam,
         player.y,
         facing,
         attack > 0
-          ? "slash"
+          ? player.grounded && Math.abs(player.vx) > 5
+            ? "runSlash"
+            : "slash"
           : player.wall
             ? "climb"
             : !player.grounded
@@ -845,24 +1062,6 @@ export async function startGame() {
                 ? "run"
                 : "idle",
       )
-    if (attack > 0.07) {
-      const x = player.x - cam + (facing > 0 ? 18 : -12)
-      poly(
-        [
-          x,
-          player.y + 1,
-          x + facing * 19,
-          player.y + 9,
-          x + facing * 22,
-          player.y + 15,
-          x + facing * 10,
-          player.y + 24,
-          x + facing * 17,
-          player.y + 13,
-        ],
-        "#e7efbd",
-      )
-    }
     for (const p of particles) rect(p.x - cam, p.y, 2, 2, p.color)
     ctx.restore()
     // Fixed arcade HUD.
@@ -876,15 +1075,23 @@ export async function startGame() {
       280,
       12,
     )
-    text("STAGE 1–1", 398, 12)
+    text(`STAGE ${activeLocation.id + 1}–1`, 398, 12)
     text("NINJA ×" + lives, 12, 24, "#8caaac", 7)
     text("✦ " + ammo.toString().padStart(2, "0"), 94, 24, "#d8eda6", 8)
-    text("THE NEON DISTRICT", 151, 24, "#718e9b", 7)
+    text(activeLocation.name, 151, 24, "#718e9b", 7)
     const boss = enemies.find((e) => e.kind === "boss")!
     if (player.x > 2810 && boss.hp > 0) {
       text("BLACK LOTUS", 302, 24, "#d3978b", 7)
       for (let i = 0; i < 24; i++)
-        rect(371 + i * 4, 18, 3, 6, i < boss.hp ? "#dd8c79" : "#44343d")
+        rect(
+          371 + i * 4,
+          18,
+          3,
+          6,
+          i < Math.ceil((boss.hp / (24 + activeLocation.id * 4)) * 24)
+            ? "#dd8c79"
+            : "#44343d",
+        )
     }
     if (state === "playing" && player.x < 200 && time > 169) {
       text("MOVE →   Z JUMP   X SLASH", 28, 245, "#abc3b5", 8)
@@ -892,7 +1099,17 @@ export async function startGame() {
     texture.source.update()
   }
   let accumulator = 0
+  const fpsLabel = document.querySelector("#fps")!
+  let frameCount = 0
+  let fpsWindowStart = performance.now()
   app.ticker.add((ticker) => {
+    frameCount++
+    const now = performance.now()
+    if (now - fpsWindowStart >= 1000) {
+      fpsLabel.textContent = `${Math.round((frameCount * 1000) / (now - fpsWindowStart))} FPS`
+      frameCount = 0
+      fpsWindowStart = now
+    }
     accumulator += Math.min(ticker.deltaMS / 1000, 0.1)
     while (accumulator >= 1 / 60) {
       update(1 / 60)
