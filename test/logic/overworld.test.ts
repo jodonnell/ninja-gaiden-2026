@@ -3,7 +3,9 @@ import {
   ROWS,
   locations,
   locationAt,
+  roamingEncounter,
   spawn,
+  updateRoamingEnemies,
   walkable,
 } from "../../src/game/overworld"
 
@@ -38,5 +40,20 @@ describe("overworld navigation", () => {
       expect(locationAt(location.x, location.y)).toBe(location)
     }
     expect(locationAt(spawn.x, spawn.y)).toBeUndefined()
+  })
+
+  it("bounces roaming enemies at off-path terrain boundaries", () => {
+    const enemy = { x: 1.01, y: 2.5, vx: -1, vy: 0 }
+    updateRoamingEnemies([enemy], 0.2)
+
+    expect(enemy.x).toBe(1.01)
+    expect(enemy.vx).toBe(1)
+  })
+
+  it("starts a nearby region fight when the player touches a roaming enemy", () => {
+    const enemy = { x: 7, y: 7, vx: 1, vy: 0 }
+
+    expect(roamingEncounter([enemy], { x: 7, y: 7 })).toBe(locations[0])
+    expect(roamingEncounter([enemy], { x: 7, y: 8 })).toBeUndefined()
   })
 })

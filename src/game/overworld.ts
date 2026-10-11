@@ -37,12 +37,48 @@ export function locationAt(x: number, y: number): Location | undefined {
   return locations.find((location) => location.x === x && location.y === y)
 }
 
+export type RoamingEnemy = { x: number; y: number; vx: number; vy: number }
+
+function offPath(x: number, y: number) {
+  const tile = map[y]?.[x]
+  return tile === 3 || tile === 4
+}
+
+export function updateRoamingEnemies(enemies: RoamingEnemy[], dt: number) {
+  for (const enemy of enemies) {
+    const nextX = enemy.x + enemy.vx * dt
+    const nextY = enemy.y + enemy.vy * dt
+    if (offPath(Math.floor(nextX), Math.floor(enemy.y))) enemy.x = nextX
+    else enemy.vx *= -1
+    if (offPath(Math.floor(enemy.x), Math.floor(nextY))) enemy.y = nextY
+    else enemy.vy *= -1
+  }
+}
+
+export function roamingEncounter(
+  enemies: RoamingEnemy[],
+  player: { x: number; y: number },
+): Location | undefined {
+  if (
+    !enemies.some(
+      (enemy) => Math.hypot(enemy.x - player.x, enemy.y - player.y) < 0.55,
+    )
+  )
+    return undefined
+  return [...locations].sort((a, b) => {
+    const distance = (candidate: Location) =>
+      Math.abs(candidate.x - player.x) + Math.abs(candidate.y - player.y)
+    return distance(a) - distance(b)
+  })[0]
+}
+
 export function drawOverworld(
   ctx: CanvasRenderingContext2D,
   sheet: HTMLImageElement,
   player: { x: number; y: number },
   age: number,
   cleared: Set<number>,
+  enemies: RoamingEnemy[],
 ) {
   ctx.fillStyle = "#101c23"
   ctx.fillRect(0, 0, 480, 270)
@@ -83,6 +119,19 @@ export function drawOverworld(
       x + 2,
       y - 5,
     )
+  }
+  for (const enemy of enemies) {
+    const x = enemy.x * TILE,
+      y = MAP_TOP + enemy.y * TILE + Math.sin(age * 10 + x) * 2
+    ctx.fillStyle = "#271d31"
+    ctx.fillRect(x + 3, y + 4, 10, 9)
+    ctx.fillStyle = "#b95862"
+    ctx.fillRect(x + 2, y + 2, 12, 8)
+    ctx.fillRect(x + 1, y, 4, 4)
+    ctx.fillRect(x + 11, y, 4, 4)
+    ctx.fillStyle = "#ffe28b"
+    ctx.fillRect(x + 4, y + 4, 2, 2)
+    ctx.fillRect(x + 10, y + 4, 2, 2)
   }
   // Small ninja marker, drawn at native pixel resolution.
   const px = Math.round(player.x * TILE),

@@ -5,6 +5,9 @@ import {
   locationAt,
   spawn,
   walkable,
+  roamingEncounter,
+  updateRoamingEnemies,
+  type RoamingEnemy,
 } from "./overworld"
 import type { Location } from "./overworld"
 import { WallJumpGrace } from "./wall-jump"
@@ -106,6 +109,14 @@ export async function startGame() {
   let pausedFrom: "overworld" | "playing" = "overworld"
   let activeLocation = locations[0]
   const cleared = new Set<number>()
+  const mapEnemies: RoamingEnemy[] = [
+    { x: 3.5, y: 4.5, vx: 1.2, vy: 0.7 },
+    { x: 8.5, y: 2.5, vx: -0.8, vy: 1.1 },
+    { x: 11.5, y: 5.5, vx: 0.9, vy: -1.0 },
+    { x: 17.5, y: 9.5, vx: -1.1, vy: 0.8 },
+    { x: 22.5, y: 4.5, vx: 1.0, vy: 0.9 },
+    { x: 27.5, y: 8.5, vx: -0.9, vy: -0.8 },
+  ]
   let mapPosition = { ...spawn }
   const mapVisual = { ...spawn }
   let mapCooldown = 0
@@ -531,6 +542,13 @@ export async function startGame() {
       mapCooldown -= dt
       mapVisual.x += (mapPosition.x - mapVisual.x) * Math.min(1, dt * 22)
       mapVisual.y += (mapPosition.y - mapVisual.y) * Math.min(1, dt * 22)
+      updateRoamingEnemies(mapEnemies, dt)
+      const encounter = mapCooldown <= 0 ? roamingEncounter(mapEnemies, mapPosition) : undefined
+      if (encounter) {
+        enterStage(encounter)
+        pressed.clear()
+        return
+      }
       if (mapCooldown <= 0) {
         const dx =
           Number(keys.has("ArrowRight") || keys.has("KeyD")) -
@@ -981,7 +999,7 @@ export async function startGame() {
       state === "transition" ||
       (state === "paused" && pausedFrom === "overworld")
     ) {
-      drawOverworld(ctx, overworldSheet, mapVisual, age, cleared)
+      drawOverworld(ctx, overworldSheet, mapVisual, age, cleared, mapEnemies)
       if (state === "transition") {
         rect(0, 0, W, H, `rgba(5,12,22,${1 - transitionTime / 0.7})`)
         text(stageLabel(), 90, 132, "#f5e2b4", 12)
