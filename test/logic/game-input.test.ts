@@ -37,7 +37,7 @@ function pad(buttons: number[] = [], axes: number[] = [0, 0]): Gamepad {
   return {
     axes,
     buttons: Array.from({ length: 16 }, (_, i) => ({ pressed: buttons.includes(i) })) as GamepadButton[],
-  } as Gamepad
+  } as unknown as Gamepad
 }
 
 describe("GameInput", () => {
