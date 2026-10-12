@@ -18,6 +18,8 @@ import { GameStageRuntime, type RuntimeEnemy } from "./game-stage-runtime"
 import ryuUrl from "../../assets/ryu-sheet.png"
 import enemiesUrl from "../../assets/enemies-sheet.png"
 import { WIDTH as W, HEIGHT as H } from "./world"
+import { GameAudio } from "./game-audio"
+import { GameFeedback } from "./game-feedback"
 
 export async function startGame() {
   const app = new Application()
@@ -81,32 +83,15 @@ export async function startGame() {
   const flow = new GameFlow()
   const session = new GameSession(flow)
   const runtime = new GameStageRuntime()
-  let sound = false,
-    audio: AudioContext | undefined
-  function beep(
-    freq: number,
-    duration = 0.08,
-    type: OscillatorType = "square",
-    volume = 0.025,
-  ) {
-    if (!sound) return
-    audio ??= new AudioContext()
-    void audio.resume()
-    const osc = audio.createOscillator(),
-      gain = audio.createGain()
-    osc.type = type
-    osc.frequency.setValueAtTime(freq, audio.currentTime)
-    osc.frequency.exponentialRampToValueAtTime(
-      Math.max(40, freq / 2),
-      audio.currentTime + duration,
-    )
-    gain.gain.setValueAtTime(volume, audio.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + duration)
-    osc.connect(gain)
-    gain.connect(audio.destination)
-    osc.start()
-    osc.stop(audio.currentTime + duration)
-  }
+  const audio = new GameAudio()
+  const feedback = new GameFeedback({
+    playCue: ({ frequency, duration, type }) =>
+      audio.play(frequency, duration, type),
+    burst: (x, y, color, count) => burst(x, y, color, count),
+    setStatus: (value) => {
+      status.textContent = value
+    },
+  })
   const controller = new GameController({
     flow,
     view: {
@@ -141,7 +126,7 @@ export async function startGame() {
       runtime.mapCooldown = seconds
     },
     prepareStage: (location) => runtime.prepareStage(location),
-    playCue: (frequency) => beep(frequency),
+    playCue: (frequency) => audio.play(frequency),
   })
   const returnToMap = () => controller.returnToMap()
   const enterStage = (location: Location) => controller.enterStage(location)
@@ -171,11 +156,11 @@ export async function startGame() {
   })
   returnToMap()
   document.querySelector("#sound")!.addEventListener("click", () => {
-    sound = !sound
-    document.querySelector("#sound")!.textContent = sound
+    const enabled = audio.toggle()
+    document.querySelector("#sound")!.textContent = enabled
       ? "SOUND ON"
       : "SOUND OFF"
-    beep(600)
+    audio.play(600)
   })
   document.querySelector("#fullscreen")!.addEventListener("click", () => {
     if (document.fullscreenElement) void document.exitFullscreen()
@@ -228,8 +213,7 @@ export async function startGame() {
     runtime.movement.jumpBuffer = 0
     runtime.movement.coyote = 0
     runtime.shake = 0.18
-    burst(runtime.player.x + 7, runtime.player.y + 12, "#f3cb9e")
-    beep(130, 0.15, "sawtooth")
+    feedback.playerHit(runtime.player.x + 7, runtime.player.y + 12)
     if (damage === "dead") controller.showDeath()
     return {
       ...vitals,
@@ -240,10 +224,8 @@ export async function startGame() {
   function hit(e: RuntimeEnemy, result: DamageResult) {
     if (result.damage === 0) return
     e.flash = 0.14
-    burst(e.x + e.w / 2, e.y + 12, "#ffdf8d")
-    beep(260, 0.07)
+    feedback.enemyHit(e.x + e.w / 2, e.y + 12, result.defeated, e.x, e.y)
     if (result.defeated) {
-      burst(e.x, e.y, "#e77b65", 20)
       if (e.kind === "boss") {
         if (!completeBoss(flow, runtime.cleared, runtime.activeLocation.id))
           return
@@ -325,17 +307,11 @@ export async function startGame() {
           particles: runtime.particles,
           hitEnemies: runtime.hitEnemies,
           onDeath: die,
-          onJump: () => beep(560, 0.1, "triangle"),
-          onCheckpoint: () => {
-            status.textContent = "CHECKPOINT REACHED"
-            beep(880, 0.2, "triangle")
-          },
-          onAttack: () => beep(720, 0.07, "sawtooth"),
-          onThrow: () => beep(1200, 0.08, "triangle"),
-          onPickup: (item) => {
-            burst(item.x, item.y, "#d9f49b")
-            beep(950, 0.15, "triangle")
-          },
+          onJump: () => feedback.jump(),
+          onCheckpoint: () => feedback.checkpoint(),
+          onAttack: () => feedback.attack(),
+          onThrow: () => feedback.throw(),
+          onPickup: (item) => feedback.pickup(item.x, item.y),
           onEnemyHit: (enemy, damage) => {
             runtime.score += damage.score
             hit(enemy, damage)
