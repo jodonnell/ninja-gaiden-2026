@@ -12,7 +12,7 @@ import {
   type RoamingEnemy,
 } from "./overworld"
 import type { Location } from "./overworld"
-import { WallJumpGrace } from "./wall-jump"
+import { createPlayerMovementState, resetPlayerMovementState, updatePlayerMovement } from "./player-movement"
 import { ninjaFrame } from "./animation"
 import type { NinjaPose } from "./animation"
 import { patrolDirection } from "./enemies"
@@ -175,17 +175,13 @@ export async function startGame() {
     invincible = 0,
     knockbackTime = 0,
     knockbackVelocity = 0,
-    facing = 1,
-    coyote = 0,
-    jumpBuffer = 0,
-    wallJumpLock = 0,
     playerStride = 0,
     playerAirTime = 0,
     playerClimbDistance = 0,
     checkpoint = 0,
     shake = 0,
     attackId = 0
-  const wallJumpGrace = new WallJumpGrace()
+  const movement = createPlayerMovementState()
   const hitEnemies = new Map<Enemy, number>()
   let sound = false,
     audio: AudioContext | undefined
@@ -310,14 +306,10 @@ export async function startGame() {
     particles = []
     shots = []
     attack = 0
-    wallJumpLock = 0
-    wallJumpGrace.reset()
+    resetPlayerMovementState(movement)
     playerStride = 0
     playerAirTime = 0
     playerClimbDistance = 0
-    coyote = 0
-    jumpBuffer = 0
-    facing = 1
     throwCooldown = 0
     invincible = 1
     knockbackTime = 0
@@ -474,10 +466,11 @@ export async function startGame() {
     knockbackVelocity = player.x < from ? -155 : 155
     player.vx = knockbackVelocity
     player.vy = -175
-    wallJumpLock = 0
-    wallJumpGrace.reset()
-    jumpBuffer = 0
-    coyote = 0
+    movement.wallJumpLock = 0
+    movement.wallGrace = 0
+    movement.lastWall = 0
+    movement.jumpBuffer = 0
+    movement.coyote = 0
     shake = 0.18
     burst(player.x + 7, player.y + 12, "#f3cb9e")
     beep(130, 0.15, "sawtooth")
@@ -586,59 +579,18 @@ export async function startGame() {
     const axis =
       (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0) -
       (keys.has("ArrowLeft") || keys.has("KeyA") ? 1 : 0)
-    const wall = player.wall
-    wallJumpGrace.update(wall, player.grounded, dt)
-    const jumpWall = wallJumpGrace.direction
-    wallJumpLock = Math.max(0, wallJumpLock - dt)
-    if (knockbackTime > 0) {
-      // Preserve the launch, then ease back to input over the final 140 ms.
-      const recoilWeight = Math.min(1, knockbackTime / 0.14) ** 2
-      player.vx = axis * 118 + (knockbackVelocity - axis * 118) * recoilWeight
-    } else if (wallJumpLock === 0) player.vx = axis * 118
-    if (axis) facing = axis
-    coyote = player.grounded ? 0.1 : Math.max(0, coyote - dt)
-    jumpBuffer =
-      pressed.has("KeyZ") || pressed.has("Space")
-        ? 0.12
-        : Math.max(0, jumpBuffer - dt)
-    if (knockbackTime === 0 && jumpBuffer > 0 && (coyote > 0 || jumpWall)) {
-      player.vy = -282
-      if (jumpWall) {
-        player.vx = -jumpWall * 155
-        facing = -jumpWall
-        wallJumpLock = 0.18
-      }
-      wallJumpGrace.reset()
-      jumpBuffer = 0
-      coyote = 0
-      beep(560, 0.1, "triangle")
-    }
-    // Jump-release gravity must not cut short the damage recoil arc.
-    if (
-      knockbackTime === 0 &&
-      !keys.has("KeyZ") &&
-      !keys.has("Space") &&
-      player.vy < -110
-    )
-      player.vy += 950 * dt
-    player.vy += 730 * dt
-    if (
-      wall &&
-      axis === wall &&
-      knockbackTime === 0 &&
-      wallJumpLock === 0 &&
-      (player.vy >= 0 || keys.has("ArrowUp") || keys.has("KeyW"))
-    ) {
-      player.vy =
-        keys.has("ArrowUp") || keys.has("KeyW")
-          ? -85
-          : keys.has("ArrowDown") || keys.has("KeyS")
-            ? 75
-            : 15
-    }
-    const previousPlayerX = player.x
-    const previousPlayerY = player.y
-    move(player, dt, stagePlatforms)
+    const movementResult = updatePlayerMovement(player, movement, {
+      axis,
+      jumpPressed: pressed.has("KeyZ") || pressed.has("Space"),
+      jumpHeld: keys.has("KeyZ") || keys.has("Space"),
+      climbUp: keys.has("ArrowUp") || keys.has("KeyW"),
+      climbDown: keys.has("ArrowDown") || keys.has("KeyS"),
+      knockbackTime,
+      knockbackVelocity,
+    }, dt, stagePlatforms)
+    if (movementResult.jumped) beep(560, 0.1, "triangle")
+    const previousPlayerX = movementResult.previousX
+    const previousPlayerY = movementResult.previousY
     if (player.grounded) playerStride += Math.abs(player.x - previousPlayerX)
     playerAirTime = player.grounded || player.wall ? 0 : playerAirTime + dt
     playerClimbDistance = player.wall
@@ -669,7 +621,7 @@ export async function startGame() {
         y: player.y + 11,
         w: 9,
         h: 9,
-        vx: facing * 260,
+        vx: movement.facing * 260,
         vy: 0,
         hostile: false,
         life: 2,
@@ -686,7 +638,7 @@ export async function startGame() {
         beep(950, 0.15, "triangle")
       }
     const blade = {
-      x: facing > 0 ? player.x + 8 : player.x - 28,
+      x: movement.facing > 0 ? player.x + 8 : player.x - 28,
       y: player.y + 3,
       w: 33,
       h: 25,
@@ -1118,7 +1070,7 @@ export async function startGame() {
       ninja(
         player.x - cam,
         player.y,
-        facing,
+        movement.facing,
         attack > 0
           ? player.grounded && Math.abs(player.vx) > 5
             ? "runSlash"
