@@ -18,6 +18,7 @@ import {
 } from "./game-session"
 import { Application, Sprite, Texture } from "pixi.js"
 import { drawGame } from "./game-renderer"
+import { GameInput } from "./game-input"
 import ryuUrl from "../../assets/ryu-sheet.png"
 import enemiesUrl from "../../assets/enemies-sheet.png"
 import {
@@ -105,8 +106,6 @@ export async function startGame() {
   await overworldSheet.decode()
   const overlay = document.querySelector<HTMLDivElement>("#overlay")!
   const status = document.querySelector("#status")!
-  const keys = new Set<string>()
-  const pressed = new Set<string>()
   const flow = new GameFlow()
   const session = new GameSession(flow)
   let activeLocation = locations[0]
@@ -138,8 +137,7 @@ export async function startGame() {
     if (lives <= 0) reset(true)
     flow.returnToMap()
     overlay.classList.add("hidden")
-    keys.clear()
-    pressed.clear()
+    input.clear()
     mapCooldown = 0.2
     setLabel("SHADOW PROVINCE — WORLD MAP")
   }
@@ -149,8 +147,7 @@ export async function startGame() {
     stagePlatforms = stages[location.id].terrain
     reset(false)
     flow.enterStage()
-    keys.clear()
-    pressed.clear()
+    input.clear()
     setLabel(stageLabel())
     beep(660, 0.15, "triangle")
   }
@@ -312,8 +309,6 @@ export async function startGame() {
     hitEnemies.clear()
     populate()
   }
-  reset(true)
-  returnToMap()
   function show(title: string, subtitle: string, button: string) {
     overlay.classList.remove("hidden")
     overlay.querySelector("h2")!.innerHTML = title
@@ -334,15 +329,14 @@ export async function startGame() {
       reset(false)
     }
     overlay.classList.add("hidden")
-    keys.clear()
-    pressed.clear()
+    input.clear()
     setLabel(stageLabel())
     beep(440)
   }
   function pause() {
     const result = flow.pause()
     if (result === "paused") {
-      keys.clear()
+      input.clear()
       show("PAUSED", "Take a breath. The shadows can wait.", "RESUME")
       status.textContent = "PAUSED"
     } else if (result === "resumed") begin()
@@ -351,66 +345,26 @@ export async function startGame() {
     if (flow.state !== "transition") returnToMap()
   })
   document.querySelector("#start")!.addEventListener("click", begin)
-  const valid = [
-    "ArrowLeft",
-    "ArrowRight",
-    "ArrowUp",
-    "ArrowDown",
-    "KeyA",
-    "KeyD",
-    "KeyW",
-    "KeyS",
-    "KeyZ",
-    "KeyX",
-    "KeyC",
-    "Space",
-    "Enter",
-    "Escape",
-    "KeyP",
-    "KeyM",
-  ]
-  window.addEventListener("keydown", (e) => {
-    if (!valid.includes(e.code)) return
-    e.preventDefault()
-    if (!e.repeat) {
-      if (e.code === "KeyM" && flow.state !== "transition") {
-        returnToMap()
-        return
-      }
-      if (e.code === "Enter") {
-        begin()
-        return
-      }
-      if (e.code === "Escape" || e.code === "KeyP") {
-        pause()
-        return
-      }
-      pressed.add(e.code)
-    }
-    keys.add(e.code)
+  const input = new GameInput({
+    pointerButtons: document.querySelectorAll<HTMLElement>("[data-key]"),
+    onCommand: (command) => {
+      if (command === "map") {
+        if (flow.state !== "transition") returnToMap()
+      } else if (command === "pause") pause()
+      else if (command === "gamepadBegin") {
+        if (flow.state === "playing" || flow.state === "overworld") pause()
+        else begin()
+      } else begin()
+    },
+    onBlur: () => {
+      if (flow.state === "playing" || flow.state === "overworld") pause()
+    },
+    onHidden: () => {
+      if (flow.state === "playing" || flow.state === "overworld") pause()
+    },
   })
-  window.addEventListener("keyup", (e) => keys.delete(e.code))
-  window.addEventListener("blur", () => {
-    keys.clear()
-    pressed.clear()
-    if (flow.state === "playing" || flow.state === "overworld") pause()
-  })
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden && (flow.state === "playing" || flow.state === "overworld"))
-      pause()
-  })
-  document
-    .querySelectorAll<HTMLButtonElement>("[data-key]")
-    .forEach((button) => {
-      button.addEventListener("pointerdown", (e) => {
-        e.preventDefault()
-        button.setPointerCapture(e.pointerId)
-        keys.add(button.dataset.key!)
-        pressed.add(button.dataset.key!)
-      })
-      for (const event of ["pointerup", "pointercancel", "lostpointercapture"])
-        button.addEventListener(event, () => keys.delete(button.dataset.key!))
-    })
+  reset(true)
+  returnToMap()
   document.querySelector("#sound")!.addEventListener("click", () => {
     sound = !sound
     document.querySelector("#sound")!.textContent = sound
@@ -502,39 +456,13 @@ export async function startGame() {
       }
     }
   }
-  let previousPad = new Set<string>()
-  function gamepad() {
-    const p = navigator.getGamepads?.()[0]
-    const next = new Set<string>()
-    if (p) {
-      if (p.axes[0] < -0.3 || p.buttons[14]?.pressed) next.add("ArrowLeft")
-      if (p.axes[0] > 0.3 || p.buttons[15]?.pressed) next.add("ArrowRight")
-      if (p.axes[1] > 0.3 || p.buttons[13]?.pressed) next.add("ArrowDown")
-      if (p.axes[1] < -0.3 || p.buttons[12]?.pressed) next.add("ArrowUp")
-      if (p.buttons[0]?.pressed) next.add("KeyZ")
-      if (p.buttons[2]?.pressed || p.buttons[1]?.pressed) next.add("KeyX")
-      if (p.buttons[3]?.pressed) next.add("KeyC")
-      if (p.buttons[9]?.pressed) next.add("Enter")
-    }
-    for (const k of previousPad) if (!next.has(k)) keys.delete(k)
-    for (const k of next) {
-      keys.add(k)
-      if (!previousPad.has(k)) {
-        if (k === "Enter") {
-          if (flow.state === "playing" || flow.state === "overworld") pause()
-          else begin()
-        } else pressed.add(k)
-      }
-    }
-    previousPad = next
-  }
   function update(dt: number) {
-    gamepad()
+    const controls = input.snapshot()
     age += dt
     session.update(dt, {
       transition: (step) => {
         flow.updateTransition(step)
-        pressed.clear()
+        input.clearPressed()
       },
       overworld: (dt) => {
         const result = stepOverworld({
@@ -544,19 +472,19 @@ export async function startGame() {
           visual: mapVisual,
           enemies: mapEnemies,
           input: {
-            left: keys.has("ArrowLeft") || keys.has("KeyA"),
-            right: keys.has("ArrowRight") || keys.has("KeyD"),
-            up: keys.has("ArrowUp") || keys.has("KeyW"),
-            down: keys.has("ArrowDown") || keys.has("KeyS"),
+            left: controls.left,
+            right: controls.right,
+            up: controls.up,
+            down: controls.down,
           },
         })
         mapPosition = result.position
         mapCooldown = result.cooldown
         if (result.location) enterStage(result.location)
-        pressed.clear()
+        input.clearPressed()
       },
       inactive: () => {
-      pressed.clear()
+      input.clearPressed()
       },
       playing: (dt) => {
         const state = {
@@ -571,14 +499,13 @@ export async function startGame() {
           height: H,
           state,
           input: {
-            axis: (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0) -
-              (keys.has("ArrowLeft") || keys.has("KeyA") ? 1 : 0),
-            jumpPressed: pressed.has("KeyZ") || pressed.has("Space"),
-            jumpHeld: keys.has("KeyZ") || keys.has("Space"),
-            climbUp: keys.has("ArrowUp") || keys.has("KeyW"),
-            climbDown: keys.has("ArrowDown") || keys.has("KeyS"),
-            attackPressed: pressed.has("KeyX"),
-            throwPressed: pressed.has("KeyC"),
+            axis: controls.axis,
+            jumpPressed: controls.jumpPressed,
+            jumpHeld: controls.jumpHeld,
+            climbUp: controls.climbUp,
+            climbDown: controls.climbDown,
+            attackPressed: controls.attackPressed,
+            throwPressed: controls.throwPressed,
           },
           player,
           movement,
@@ -619,7 +546,7 @@ export async function startGame() {
           invincible, knockbackTime, knockbackVelocity, playerStride,
           playerAirTime, playerClimbDistance, checkpoint, shake, cam,
         } = state)
-    pressed.clear()
+    input.clearPressed()
       },
     })
   }

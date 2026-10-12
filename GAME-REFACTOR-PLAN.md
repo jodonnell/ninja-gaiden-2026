@@ -16,7 +16,7 @@ Goal: make gameplay behavior independently testable and keep `game.ts` as the br
 
 Work through these steps in order. Each behavior-changing extraction needs focused automated tests and a separate commit.
 
-- [ ] **Extract input collection and device handling** into `game-input.ts`. Own keyboard, pointer buttons, gamepad polling, pressed-versus-held state, blur, and visibility handling there. Return a normalized input snapshot to the game loop. Test key mappings, edge-triggered presses, held inputs, and gamepad transitions.
+- [x] **Extract input collection and device handling** into `game-input.ts`. Own keyboard, pointer buttons, gamepad polling, pressed-versus-held state, blur, and visibility handling there. Return a normalized input snapshot to the game loop. Test key mappings, edge-triggered presses, held inputs, and gamepad transitions.
 - [ ] **Extract session and overlay lifecycle orchestration** into a controller module. Own starting and resuming, pausing, death and retry screens, returning to the map, entering a stage, and corresponding labels/status updates. Keep DOM updates behind a small view interface so flow transitions can be tested without a browser.
 - [ ] **Extract stage runtime and mutable gameplay state** from `game.ts`. Own player/stage state, enemy and pickup population, resets, checkpoints, and stage/map transitions. Keep rules in the existing logic modules; test stage initialization and reset behavior.
 - [ ] **Extract audio and gameplay feedback effects** into focused presentation helpers. Own sound enablement and synthesis plus hit, pickup, jump, checkpoint, death, and attack feedback. Test the event-to-effect mapping without requiring real audio hardware.
