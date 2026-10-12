@@ -19,6 +19,7 @@ import { patrolDirection } from "./enemies"
 import { resolveShurikenHit, resolveSwordHit, type DamageResult } from "./combat"
 import { collectPickup, consumeAmmo, playerSpawnPosition, updateCheckpoint, type Pickup } from "./pickups"
 import { GameFlow } from "./flow"
+import { GameSession } from "./game-session"
 import { Application, Sprite, Texture } from "pixi.js"
 import ryuUrl from "../../assets/ryu-sheet.png"
 import enemiesUrl from "../../assets/enemies-sheet.png"
@@ -114,6 +115,7 @@ export async function startGame() {
   const keys = new Set<string>()
   const pressed = new Set<string>()
   const flow = new GameFlow()
+  const session = new GameSession(flow)
   let activeLocation = locations[0]
   const cleared = new Set<number>()
   const mapEnemies: RoamingEnemy[] = [
@@ -528,12 +530,12 @@ export async function startGame() {
   function update(dt: number) {
     gamepad()
     age += dt
-    if (flow.state === "transition") {
-      flow.updateTransition(dt)
-      pressed.clear()
-      return
-    }
-    if (flow.state === "overworld") {
+    session.update(dt, {
+      transition: (step) => {
+        flow.updateTransition(step)
+        pressed.clear()
+      },
+      overworld: (dt) => {
       mapCooldown -= dt
       mapVisual.x += (mapPosition.x - mapVisual.x) * Math.min(1, dt * 22)
       mapVisual.y += (mapPosition.y - mapVisual.y) * Math.min(1, dt * 22)
@@ -560,12 +562,11 @@ export async function startGame() {
         }
       }
       pressed.clear()
-      return
-    }
-    if (flow.state !== "playing") {
+      },
+      inactive: () => {
       pressed.clear()
-      return
-    }
+      },
+      playing: (dt) => {
     time -= dt
     if (time <= 0) {
       die()
@@ -748,6 +749,8 @@ export async function startGame() {
       (Math.max(0, Math.min(WORLD_END - W, player.x - 155)) - cam) *
       Math.min(1, dt * 9)
     pressed.clear()
+      },
+    })
   }
   function rect(x: number, y: number, w: number, h: number, c: string) {
     ctx.fillStyle = c
