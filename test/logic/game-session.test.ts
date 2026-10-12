@@ -33,3 +33,22 @@ describe("game session update routing", () => {
     },
   )
 })
+
+describe("game session fixed-step clock", () => {
+  it("carries partial frame time forward and emits fixed-size steps", () => {
+    const session = new GameSession(new GameFlow())
+    const steps: number[] = []
+
+    expect(session.advance(0.01, (dt) => steps.push(dt))).toBe(0)
+    expect(session.advance(0.01, (dt) => steps.push(dt))).toBe(1)
+    expect(steps).toEqual([1 / 60])
+  })
+
+  it("caps catch-up work after a stalled frame", () => {
+    const session = new GameSession(new GameFlow())
+    const steps: number[] = []
+
+    expect(session.advance(0.5, (dt) => steps.push(dt))).toBe(6)
+    expect(steps).toEqual(Array(6).fill(1 / 60))
+  })
+})

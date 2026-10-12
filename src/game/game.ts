@@ -1132,7 +1132,6 @@ export async function startGame() {
     }
     texture.source.update()
   }
-  let accumulator = 0
   const fpsLabel = document.querySelector("#fps")!
   let frameCount = 0
   let fpsWindowStart = performance.now()
@@ -1144,11 +1143,7 @@ export async function startGame() {
       frameCount = 0
       fpsWindowStart = now
     }
-    accumulator += Math.min(ticker.deltaMS / 1000, 0.1)
-    while (accumulator >= 1 / 60) {
-      update(1 / 60)
-      accumulator -= 1 / 60
-    }
+    session.advance(ticker.deltaMS / 1000, update)
     draw()
   })
 }
