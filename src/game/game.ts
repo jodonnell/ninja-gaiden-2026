@@ -19,6 +19,7 @@ import {
 import { Application, Sprite, Texture } from "pixi.js"
 import { drawGame } from "./game-renderer"
 import { GameInput } from "./game-input"
+import { GameController } from "./game-controller"
 import ryuUrl from "../../assets/ryu-sheet.png"
 import enemiesUrl from "../../assets/enemies-sheet.png"
 import {
@@ -122,35 +123,6 @@ export async function startGame() {
   const mapVisual = { ...spawn }
   let mapCooldown = 0
   let stagePlatforms = platforms
-  function stageLabel() {
-    return `0${activeLocation.id + 1} — ${activeLocation.name}`
-  }
-  function setLabel(label: string) {
-    document.querySelector(".stage-label strong")!.textContent = label
-    document.querySelector(".stage-label small")!.textContent =
-      flow.state === "overworld"
-        ? "SHADOW PROVINCE / WORLD MAP"
-        : "SIDE-SCROLLING MISSION"
-    status.textContent = label
-  }
-  function returnToMap() {
-    if (lives <= 0) reset(true)
-    flow.returnToMap()
-    overlay.classList.add("hidden")
-    input.clear()
-    mapCooldown = 0.2
-    setLabel("SHADOW PROVINCE — WORLD MAP")
-  }
-  function enterStage(location: Location) {
-    activeLocation = location
-    checkpoint = 0
-    stagePlatforms = stages[location.id].terrain
-    reset(false)
-    flow.enterStage()
-    input.clear()
-    setLabel(stageLabel())
-    beep(660, 0.15, "triangle")
-  }
   let player: Body
   let enemies: Enemy[] = []
   let particles: Particle[] = []
@@ -309,47 +281,52 @@ export async function startGame() {
     hitEnemies.clear()
     populate()
   }
-  function show(title: string, subtitle: string, button: string) {
-    overlay.classList.remove("hidden")
-    overlay.querySelector("h2")!.innerHTML = title
-    overlay.querySelector("p")!.textContent = subtitle
-    overlay.querySelector("#start")!.innerHTML = button + " <span>→</span>"
-    overlay.querySelector(".overlay-kicker")!.textContent =
-      "SHADOW OF THE DRAGON"
-    overlay.querySelector("small")!.textContent = "PRESS ENTER TO CONTINUE"
-  }
-  function begin() {
-    const result = flow.begin(lives)
-    if (result === "unchanged") return
-    if (result === "map") {
-      if (lives <= 0) reset(true)
-      return returnToMap()
-    }
-    if (result === "started") {
+  const controller = new GameController({
+    flow,
+    view: {
+      showOverlay(title, subtitle, button) {
+        overlay.classList.remove("hidden")
+        overlay.querySelector("h2")!.innerHTML = title
+        overlay.querySelector("p")!.textContent = subtitle
+        overlay.querySelector("#start")!.innerHTML = button + " <span>→</span>"
+        overlay.querySelector(".overlay-kicker")!.textContent = "SHADOW OF THE DRAGON"
+        overlay.querySelector("small")!.textContent = "PRESS ENTER TO CONTINUE"
+      },
+      hideOverlay: () => overlay.classList.add("hidden"),
+      setLabels(title, context) {
+        document.querySelector(".stage-label strong")!.textContent = title
+        document.querySelector(".stage-label small")!.textContent = context
+      },
+      setStatus: (text) => { status.textContent = text },
+    },
+    getLives: () => lives,
+    setLives: (value) => { lives = value },
+    getScore: () => score,
+    getStageName: () => `0${activeLocation.id + 1} — ${activeLocation.name}`,
+    reset: (full) => reset(full),
+    clearInput: () => input.clear(),
+    setMapCooldown: (seconds) => { mapCooldown = seconds },
+    prepareStage(location) {
+      activeLocation = location
+      checkpoint = 0
+      stagePlatforms = stages[location.id].terrain
       reset(false)
-    }
-    overlay.classList.add("hidden")
-    input.clear()
-    setLabel(stageLabel())
-    beep(440)
-  }
-  function pause() {
-    const result = flow.pause()
-    if (result === "paused") {
-      input.clear()
-      show("PAUSED", "Take a breath. The shadows can wait.", "RESUME")
-      status.textContent = "PAUSED"
-    } else if (result === "resumed") begin()
-  }
+    },
+    playCue: (frequency) => beep(frequency),
+  })
+  const returnToMap = () => controller.returnToMap()
+  const enterStage = (location: Location) => controller.enterStage(location)
+  const begin = () => controller.begin()
+  const pause = () => controller.pause()
   document.querySelector("#world-map")!.addEventListener("click", () => {
-    if (flow.state !== "transition") returnToMap()
+    returnToMap()
   })
   document.querySelector("#start")!.addEventListener("click", begin)
   const input = new GameInput({
     pointerButtons: document.querySelectorAll<HTMLElement>("[data-key]"),
     onCommand: (command) => {
       if (command === "map") {
-        if (flow.state !== "transition") returnToMap()
+        returnToMap()
       } else if (command === "pause") pause()
       else if (command === "gamepadBegin") {
         if (flow.state === "playing" || flow.state === "overworld") pause()
@@ -394,23 +371,8 @@ export async function startGame() {
       })
   }
   function die() {
-    if (flow.state !== "playing") return lives
     // Environmental deaths bypass the hit and invulnerability rules.
-    lives--
-    flow.state = "dead"
-    showDeath()
-    return lives
-  }
-  function showDeath() {
-    beep(100, 0.4, "sawtooth")
-    show(
-      lives > 0 ? "FALLEN" : "GAME OVER",
-      lives > 0
-        ? `${lives} lives remain. Rise again at the last checkpoint.`
-        : `Final score: ${score.toString().padStart(6, "0")}. The dragon awaits your return.`,
-      lives > 0 ? "TRY AGAIN" : "NEW MISSION",
-    )
-    status.textContent = lives > 0 ? "MISSION INTERRUPTED" : "GAME OVER"
+    return controller.die()
   }
   function hurt(amount: number, from: number) {
     const vitals = { hp, lives, invincible }
@@ -432,7 +394,7 @@ export async function startGame() {
     shake = 0.18
     burst(player.x + 7, player.y + 12, "#f3cb9e")
     beep(130, 0.15, "sawtooth")
-    if (damage === "dead") showDeath()
+    if (damage === "dead") controller.showDeath()
     return { ...vitals, knockbackTime, knockbackVelocity }
   }
   function hit(e: Enemy, result: DamageResult) {
@@ -444,15 +406,7 @@ export async function startGame() {
       burst(e.x, e.y, "#e77b65", 20)
       if (e.kind === "boss") {
         if (!completeBoss(flow, cleared, activeLocation.id)) return
-        show(
-          "DAWN BREAKS",
-          stages[activeLocation.id].boss +
-            " has fallen. Score " +
-            score.toString().padStart(6, "0") +
-            ".",
-          "RETURN TO WORLD MAP",
-        )
-        status.textContent = "STAGE CLEAR"
+        controller.stageCleared(stages[activeLocation.id].boss)
       }
     }
   }
