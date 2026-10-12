@@ -1,3 +1,5 @@
+import { stages, floorAt, type EnemyKind } from "./stages"
+import { drawBiome } from "./biomes"
 import overworldUrl from "../../assets/overworld-sheet.png"
 import {
   drawOverworld,
@@ -29,7 +31,7 @@ import type { Body, Rect } from "./world"
 
 type Enemy = Body & {
   hp: number
-  kind: "guard" | "bird" | "boss"
+  kind: EnemyKind
   stride: number
   home: number
   dir: number
@@ -96,6 +98,12 @@ export async function startGame() {
     loadSpriteSheet(ryuUrl),
     loadSpriteSheet(enemiesUrl),
   ])
+  const ninjaEnemySheet = document.createElement("canvas")
+  ninjaEnemySheet.width = spriteSheet.width
+  ninjaEnemySheet.height = spriteSheet.height
+  const enemyCtx = ninjaEnemySheet.getContext("2d")!
+  enemyCtx.filter = "hue-rotate(135deg) saturate(0.8)"
+  enemyCtx.drawImage(spriteSheet, 0, 0)
   const overworldSheet = new Image()
   overworldSheet.src = overworldUrl
   await overworldSheet.decode()
@@ -145,10 +153,7 @@ export async function startGame() {
   function enterStage(location: Location) {
     activeLocation = location
     checkpoint = 0
-    stagePlatforms = platforms.map((p, i) => ({
-      ...p,
-      y: p.y - (p.h === 12 ? location.id * (i % 2 ? 5 : 8) : 0),
-    }))
+    stagePlatforms = stages[location.id].terrain
     reset(false)
     state = "transition"
     transitionTime = 0.7
@@ -213,26 +218,24 @@ export async function startGame() {
     osc.stop(audio.currentTime + duration)
   }
   function populate() {
-    enemies = [340, 670, 990, 1310, 1590, 1800, 2040, 2340, 2670].map(
-      (x, i) => ({
-        x,
-        y: 100,
-        w: 14,
-        h: 27,
-        vx: 0,
-        vy: 0,
-        grounded: false,
-        wall: 0,
-        hp: 1,
-        kind: "guard",
-        stride: 0,
-        home: x,
-        dir: i % 2 ? 1 : -1,
-        timer: i * 0.2,
-        flash: 0,
-      }),
-    )
-    for (const x of [790, 1190, 1760, 2180, 2500])
+    enemies = stages[activeLocation.id].guards.map(({ x, kind }, i) => ({
+      x,
+      y: floorAt(stagePlatforms, x) - 27,
+      w: 14,
+      h: 27,
+      vx: 0,
+      vy: 0,
+      grounded: false,
+      wall: 0,
+      hp: kind === "guard" ? 1 : 2,
+      kind,
+      stride: 0,
+      home: x,
+      dir: i % 2 ? 1 : -1,
+      timer: i * 0.2,
+      flash: 0,
+    }))
+    for (const { x, kind } of stages[activeLocation.id].flyers)
       enemies.push({
         x,
         y: 100,
@@ -243,7 +246,7 @@ export async function startGame() {
         grounded: false,
         wall: 0,
         hp: 1,
-        kind: "bird",
+        kind,
         stride: 0,
         home: x,
         dir: -1,
@@ -277,9 +280,16 @@ export async function startGame() {
       { x: 2430, y: 119, w: 10, h: 12, kind: "ammo", taken: false },
       { x: 2750, y: 199, w: 10, h: 12, kind: "health", taken: false },
     ]
-    pickups.forEach((pickup, i) => {
-      if (i < 7) pickup.y -= activeLocation.id * (i % 2 ? 5 : 8)
-    })
+    if (activeLocation.id > 0) {
+      pickups = stagePlatforms.slice(0, -1).map((p, i) => ({
+        x: p.x + p.w * 0.65,
+        y: p.y - 20,
+        w: 10,
+        h: 12,
+        kind: i % 3 === 1 ? "health" : "ammo",
+        taken: false,
+      }))
+    }
   }
   function reset(full: boolean) {
     if (full) {
@@ -292,7 +302,7 @@ export async function startGame() {
     time = 180
     player = {
       x: checkpoint || 64,
-      y: 175,
+      y: floorAt(stagePlatforms, checkpoint || 64) - 28,
       w: 13,
       h: 28,
       vx: 0,
@@ -494,7 +504,8 @@ export async function startGame() {
         state = "won"
         show(
           "DAWN BREAKS",
-          "The Black Lotus has fallen. Score " +
+          stages[activeLocation.id].boss +
+            " has fallen. Score " +
             score.toString().padStart(6, "0") +
             ".",
           "RETURN TO WORLD MAP",
@@ -642,7 +653,10 @@ export async function startGame() {
     playerClimbDistance = player.wall
       ? playerClimbDistance + Math.abs(player.y - previousPlayerY)
       : 0
-    if (player.y > H + 40) {
+    if (
+      player.y > H + 40 ||
+      (activeLocation.id === 2 && player.y + player.h >= 254)
+    ) {
       die()
       return
     }
@@ -690,32 +704,62 @@ export async function startGame() {
       if (e.hp <= 0 || Math.abs(e.x - player.x) > 550) continue
       e.flash -= dt
       e.timer += dt
-      if (e.kind === "bird") {
-        e.x -= 65 * dt
-        e.y += Math.sin(age * 5 + e.home) * 45 * dt
+      if (e.kind === "bat") {
+        e.dir = player.x < e.x ? -1 : 1
+        e.x += e.dir * 42 * dt
+        e.y = 150 + Math.sin(e.timer * 4 + e.home) * 38
+      } else if (e.kind === "bird") {
+        e.x -= (activeLocation.id === 1 ? 78 : 65) * dt
+        if (activeLocation.id === 1) e.y = 115 + Math.sin(e.timer * 2.8) * 62
+        else e.y += Math.sin(age * 5 + e.home) * 45 * dt
       } else {
         if (e.kind === "boss") {
           if (player.x > 2820) {
             e.dir = player.x < e.x ? -1 : 1
-            e.vx = e.dir * 60
-            if (e.timer > 1.8) {
+            e.vx =
+              e.dir *
+              (activeLocation.id === 1 ? 95 : activeLocation.id === 2 ? 28 : 60)
+            if (e.timer > (activeLocation.id === 1 ? 1.25 : 1.8)) {
               e.timer = 0
-              e.vy = -240
-              shots.push({
-                x: e.x,
-                y: e.y + 15,
-                w: 8,
-                h: 8,
-                vx: e.dir * 155,
-                vy: 0,
-                hostile: true,
-                life: 3,
-              })
+              e.vy = activeLocation.id === 2 ? -130 : -240
+              for (const velocityY of activeLocation.id === 2
+                ? [-55, 0, 55]
+                : [0])
+                shots.push({
+                  x: e.x,
+                  y: e.y + 15,
+                  w: 8,
+                  h: 8,
+                  vx: e.dir * 155,
+                  vy: velocityY,
+                  hostile: true,
+                  life: 3,
+                })
             }
           }
+        } else if (e.kind === "monk") {
+          e.vx = 0
+          e.dir = player.x < e.x ? -1 : 1
+          if (e.timer > 2.2 && Math.abs(e.x - player.x) < 310) {
+            e.timer = 0
+            shots.push({
+              x: e.x + e.dir * 10,
+              y: e.y + 10,
+              w: 8,
+              h: 8,
+              vx: e.dir * 125,
+              vy: 0,
+              hostile: true,
+              life: 3,
+            })
+          }
         } else {
-          e.dir = patrolDirection(e, e.home, e.dir)
-          e.vx = e.dir * 35
+          e.dir = patrolDirection(e, e.home, e.dir, stagePlatforms)
+          e.vx = e.dir * (e.kind === "hopper" ? 55 : 35)
+          if (e.kind === "hopper" && e.grounded && e.timer > 1.4) {
+            e.vy = -230
+            e.timer = 0
+          }
         }
         e.vy += 730 * dt
         const previousEnemyX = e.x
@@ -762,33 +806,8 @@ export async function startGame() {
       Math.min(1, dt * 9)
     pressed.clear()
   }
-  // Swap a few environment colors directly. A canvas filter on every tile,
-  // window, and rain streak creates hundreds of costly filtered draws per frame.
-  const stagePalettes: Record<string, string>[] = [
-    {},
-    {
-      "#0b1729": "#102523",
-      "#14293c": "#1b3931",
-      "#243e4c": "#305244",
-      "#12252d": "#18352b",
-      "#6a8b84": "#98b588",
-      "#354d4b": "#4b6450",
-      "#101e33": "#152d27",
-      "#172c3b": "#234136",
-    },
-    {
-      "#0b1729": "#261626",
-      "#14293c": "#3c253b",
-      "#243e4c": "#563746",
-      "#12252d": "#33212e",
-      "#6a8b84": "#bb8b83",
-      "#354d4b": "#64454b",
-      "#101e33": "#2c1c31",
-      "#172c3b": "#41293c",
-    },
-  ]
   function rect(x: number, y: number, w: number, h: number, c: string) {
-    ctx.fillStyle = stagePalettes[activeLocation.id][c] ?? c
+    ctx.fillStyle = c
     ctx.fillRect(Math.round(x), Math.round(y), w, h)
   }
   function poly(points: number[], c: string) {
@@ -959,14 +978,14 @@ export async function startGame() {
     ctx.translate(Math.round(x + 7), Math.round(y + 28))
     // The climbing pose faces left in the sheet; other poses face right.
     ctx.scale(frame === "climb" ? -dir : dir, 1)
-    if (enemy) ctx.filter = "hue-rotate(135deg) saturate(0.8)"
+    const sheet = enemy ? ninjaEnemySheet : spriteSheet
     if (frame === "runSlash") {
       // Join the slash torso and the current stride at a shared waistline.
       // Using the same distance as normal running preserves the foot cycle.
       const legs = ninjaFrame("run", stride)
       const legHeight = 14
       ctx.drawImage(
-        spriteSheet,
+        sheet,
         legs.x,
         legs.y + legs.h - legHeight,
         legs.w,
@@ -978,7 +997,7 @@ export async function startGame() {
       )
       const torsoHeight = f.h - legHeight
       ctx.drawImage(
-        spriteSheet,
+        sheet,
         f.x,
         f.y,
         f.w,
@@ -989,7 +1008,7 @@ export async function startGame() {
         torsoHeight,
       )
     } else {
-      ctx.drawImage(spriteSheet, f.x, f.y, f.w, f.h, -f.pivot, -f.h, f.w, f.h)
+      ctx.drawImage(sheet, f.x, f.y, f.w, f.h, -f.pivot, -f.h, f.w, f.h)
     }
     ctx.restore()
   }
@@ -1010,8 +1029,10 @@ export async function startGame() {
     ctx.save()
     if (shake > 0 && state === "playing")
       ctx.translate(Math.round(Math.sin(age * 120) * 2), 0)
-    background()
-    terrain()
+    if (activeLocation.id === 0) {
+      background()
+      terrain()
+    } else drawBiome(ctx, activeLocation.id, stagePlatforms, cam, age)
     for (const p of pickups)
       if (!p.taken) {
         const x = p.x - cam,
@@ -1024,7 +1045,40 @@ export async function startGame() {
       if (e.hp <= 0 || e.x - cam > W + 40 || e.x - cam < -40) continue
       const x = e.x - cam
       if (e.flash > 0 && Math.floor(age * 35) % 2 === 0) continue
-      if (e.kind === "bird") {
+      if (e.kind === "bat") {
+        const flap = Math.sin(e.timer * 16) * 7
+        poly(
+          [
+            x + 9,
+            e.y + 5,
+            x - 7,
+            e.y - flap,
+            x - 2,
+            e.y + 10,
+            x + 9,
+            e.y + 8,
+            x + 20,
+            e.y + 10,
+            x + 25,
+            e.y - flap,
+          ],
+          "#ac7dba",
+        )
+        rect(x + 5, e.y, 8, 11, "#53385e")
+        rect(x + 6, e.y + 3, 2, 2, "#ffe07c")
+        rect(x + 11, e.y + 3, 2, 2, "#ffe07c")
+      } else if (e.kind === "monk") {
+        poly(
+          [x + 4, e.y + 7, x + 10, e.y + 7, x + 17, e.y + 27, x - 3, e.y + 27],
+          "#b24f45",
+        )
+        rect(x + 3, e.y, 9, 9, "#713749")
+        rect(x + 5, e.y + 3, 6, 3, "#ebbd80")
+        rect(x + 6, e.y + 10, 3, 16, "#e3a454")
+        rect(x + (e.dir > 0 ? 14 : -3), e.y + 5, 2, 22, "#e3a454")
+        if (e.timer > 1.65)
+          rect(x + (e.dir > 0 ? 12 : -5), e.y + 1, 6, 6, "#ffcc65")
+      } else if (e.kind === "bird") {
         // The sheet's eagles face right. Mirror for their leftward flight.
         const wingsUp = Math.floor(e.timer * 8) % 2 === 0
         ctx.save()
@@ -1056,6 +1110,12 @@ export async function startGame() {
         y = s.y + 4
       ctx.save()
       ctx.translate(x, y)
+      if (s.hostile && activeLocation.id === 2) {
+        poly([-7, 0, -2, -4, 4, -4, 7, 0, 4, 4, -2, 4], "#ee783d")
+        rect(-2, -2, 5, 4, "#ffe5a0")
+        ctx.restore()
+        continue
+      }
       ctx.rotate(age * 25)
       poly(
         [-6, 0, -1, -2, 0, -6, 2, -1, 6, 0, 1, 2, 0, 6, -2, 1],
@@ -1099,7 +1159,7 @@ export async function startGame() {
     text(activeLocation.name, 151, 24, "#718e9b", 7)
     const boss = enemies.find((e) => e.kind === "boss")!
     if (player.x > 2810 && boss.hp > 0) {
-      text("BLACK LOTUS", 302, 24, "#d3978b", 7)
+      text(stages[activeLocation.id].boss, 302, 24, "#d3978b", 7)
       for (let i = 0; i < 24; i++)
         rect(
           371 + i * 4,
@@ -1112,7 +1172,17 @@ export async function startGame() {
         )
     }
     if (state === "playing" && player.x < 200 && time > 169) {
-      text("MOVE →   Z JUMP   X SLASH", 28, 245, "#abc3b5", 8)
+      text(
+        [
+          "MOVE →   Z JUMP   X SLASH",
+          "JADE PASS / WATCH FOR DIVING EAGLES",
+          "CINDER HALL / JUMP THE LAVA PITS",
+        ][activeLocation.id],
+        28,
+        245,
+        "#abc3b5",
+        8,
+      )
     }
     texture.source.update()
   }

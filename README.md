@@ -24,7 +24,7 @@ Open the localhost URL printed by Vite. `npm run build` makes the production bui
 
 Cross the stage, collect health and ammunition, reach the midpoint checkpoint, and defeat Black Lotus. Three lives, a stage timer, damage invulnerability, and retry / victory flows are implemented. Sound effects are opt-in via the Sound button. Losing focus pauses gameplay.
 
-The game starts on the overworld. Three temple entrances load variants of the rooftop stage, with different palettes, raised platforms, and boss health. Clearing a stage marks its temple; returning keeps your map position. Progress lasts for the current session. These are stage variants, not recreations of the original Ninja Gaiden II levels. Stage art is original, while guard and boss visuals are recolored Ryu placeholders. No original music or full campaign is included.
+The game starts on the overworld. Three temple entrances lead to distinct stages: the Neon District rooftops; Jade Mountain, with bamboo, waterfalls, cliff jumps, leaping ninjas, and diving eagles; and Crimson Temple, with lava pits, fire monks, and bats. Jade Talon uses fast jumping attacks, while Cinder Lord throws three-way fire volleys. Clearing a stage marks its temple; returning keeps your map position. Progress lasts for the current session. These are original layouts, not recreations of the original Ninja Gaiden II levels. Stage art is original, while guard and boss visuals are recolored Ryu placeholders. No original music or full campaign is included.
 
 ## Development
 
@@ -33,4 +33,4 @@ The game starts on the overworld. Three temple entrances load variants of the ro
 - `npx tsc --noEmit`: TypeScript
 - `npm run build`: production bundle
 
-`src/game/overworld.ts` contains the map, tile rendering, and entrances. `src/game/world.ts` contains terrain and collision physics. `src/game/game.ts` contains the fixed-step game loop, combat, input, audio, and procedural scene drawing. The pixel surface is uploaded to a nearest-neighbor PixiJS texture at 480×270.
+`src/game/overworld.ts` contains the map, tile rendering, and entrances. `src/game/stages.ts` defines stage layouts and enemy rosters; `src/game/biomes.ts` draws the mountain and temple scenery without frame-time filters. `src/game/world.ts` contains terrain and collision physics. `src/game/game.ts` contains the fixed-step game loop, combat, input, audio, and procedural scene drawing. The pixel surface is uploaded to a nearest-neighbor PixiJS texture at 480×270.
