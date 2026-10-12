@@ -8,20 +8,18 @@ import {
   type RoamingEnemy,
 } from "./overworld"
 import type { Location } from "./overworld"
-import { createPlayerMovementState, resetPlayerMovementState, updatePlayerMovement } from "./player-movement"
+import { createPlayerMovementState, resetPlayerMovementState } from "./player-movement"
 import { ninjaFrame } from "./animation"
 import type { NinjaPose } from "./animation"
 import type { DamageResult } from "./combat"
-import { collectPickup, consumeAmmo, playerSpawnPosition, updateCheckpoint, type Pickup } from "./pickups"
+import { playerSpawnPosition, type Pickup } from "./pickups"
 import { GameFlow } from "./flow"
 import {
   GameSession,
   completeBoss,
   damagePlayer,
   stepOverworld,
-  stepParticles,
-  stepProjectiles,
-  stepEnemies,
+  stepPlaying,
 } from "./game-session"
 import { Application, Sprite, Texture } from "pixi.js"
 import ryuUrl from "../../assets/ryu-sheet.png"
@@ -29,9 +27,7 @@ import enemiesUrl from "../../assets/enemies-sheet.png"
 import {
   WIDTH as W,
   HEIGHT as H,
-  WORLD_END,
   platforms,
-  overlaps,
 } from "./world"
 import type { Body, Rect } from "./world"
 
@@ -53,7 +49,6 @@ type Particle = {
   color: string
 }
 type Shot = Rect & { vx: number; vy: number; hostile: boolean; life: number }
-const SWORD_ATTACK_SECONDS = 0.23
 
 export async function startGame() {
   const app = new Application()
@@ -449,11 +444,12 @@ export async function startGame() {
       })
   }
   function die() {
-    if (flow.state !== "playing") return
+    if (flow.state !== "playing") return lives
     // Environmental deaths bypass the hit and invulnerability rules.
     lives--
     flow.state = "dead"
     showDeath()
+    return lives
   }
   function showDeath() {
     beep(100, 0.4, "sawtooth")
@@ -469,7 +465,8 @@ export async function startGame() {
   function hurt(amount: number, from: number) {
     const vitals = { hp, lives, invincible }
     const damage = damagePlayer(vitals, amount, flow)
-    if (damage === "ignored") return
+    if (damage === "ignored")
+      return { ...vitals, knockbackTime, knockbackVelocity }
     hp = vitals.hp
     lives = vitals.lives
     invincible = vitals.invincible
@@ -486,13 +483,13 @@ export async function startGame() {
     burst(player.x + 7, player.y + 12, "#f3cb9e")
     beep(130, 0.15, "sawtooth")
     if (damage === "dead") showDeath()
+    return { ...vitals, knockbackTime, knockbackVelocity }
   }
   function hit(e: Enemy, result: DamageResult) {
     if (result.damage === 0) return
     e.flash = 0.14
     burst(e.x + e.w / 2, e.y + 12, "#ffdf8d")
     beep(260, 0.07)
-    score += result.score
     if (result.defeated) {
       burst(e.x, e.y, "#e77b65", 20)
       if (e.kind === "boss") {
@@ -566,100 +563,66 @@ export async function startGame() {
       pressed.clear()
       },
       playing: (dt) => {
-    time -= dt
-    if (time <= 0) {
-      die()
-      return
-    }
-    attack = Math.max(0, attack - dt)
-    throwCooldown -= dt
-    invincible -= dt
-    knockbackTime = Math.max(0, knockbackTime - dt)
-    shake -= dt
-    const axis =
-      (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0) -
-      (keys.has("ArrowLeft") || keys.has("KeyA") ? 1 : 0)
-    const movementResult = updatePlayerMovement(player, movement, {
-      axis,
-      jumpPressed: pressed.has("KeyZ") || pressed.has("Space"),
-      jumpHeld: keys.has("KeyZ") || keys.has("Space"),
-      climbUp: keys.has("ArrowUp") || keys.has("KeyW"),
-      climbDown: keys.has("ArrowDown") || keys.has("KeyS"),
-      knockbackTime,
-      knockbackVelocity,
-    }, dt, stagePlatforms)
-    if (movementResult.jumped) beep(560, 0.1, "triangle")
-    const previousPlayerX = movementResult.previousX
-    const previousPlayerY = movementResult.previousY
-    if (player.grounded) playerStride += Math.abs(player.x - previousPlayerX)
-    playerAirTime = player.grounded || player.wall ? 0 : playerAirTime + dt
-    playerClimbDistance = player.wall
-      ? playerClimbDistance + Math.abs(player.y - previousPlayerY)
-      : 0
-    if (
-      player.y > H + 40 ||
-      (activeLocation.id === 2 && player.y + player.h >= 254)
-    ) {
-      die()
-      return
-    }
-    const reachedCheckpoint = updateCheckpoint(checkpoint, player.x)
-    if (reachedCheckpoint !== checkpoint) {
-      checkpoint = reachedCheckpoint
-      status.textContent = "CHECKPOINT REACHED"
-      beep(880, 0.2, "triangle")
-    }
-    if (pressed.has("KeyX") && attack === 0) {
-      attack = SWORD_ATTACK_SECONDS
-      attackId++
-      beep(720, 0.07, "sawtooth")
-    }
-    const ammoAfterThrow = pressed.has("KeyC") ? consumeAmmo(ammo) : undefined
-    if (ammoAfterThrow !== undefined && throwCooldown <= 0) {
-      ammo = ammoAfterThrow
-      throwCooldown = 0.28
-      shots.push({
-        x: player.x + 5,
-        y: player.y + 11,
-        w: 9,
-        h: 9,
-        vx: movement.facing * 260,
-        vy: 0,
-        hostile: false,
-        life: 2,
-      })
-      beep(1200, 0.08, "triangle")
-    }
-    for (const item of pickups) {
-      const updatedStats = collectPickup(item, { hp, ammo, score }, overlaps(player, item))
-      if (updatedStats) {
-        hp = updatedStats.hp
-        ammo = updatedStats.ammo
-        score = updatedStats.score
-        burst(item.x, item.y, "#d9f49b")
-        beep(950, 0.15, "triangle")
-      }
-    }
-    stepEnemies({
-      dt,
-      age,
-      stageId: activeLocation.id,
-      player,
-      facing: movement.facing,
-      enemies,
-      terrain: stagePlatforms,
-      attackActive: attack > 0.04,
-      attackId,
-      hitEnemies,
-      onEnemyHit: hit,
-      onPlayerHit: hurt,
-      onHostileShot: (shot) => shots.push(shot),
-    })
-    shots = stepProjectiles(shots, player, enemies, dt, hit, (x) => hurt(2, x))
-    particles = stepParticles(particles, dt)
-    cam +=
-      (Math.max(0, Math.min(WORLD_END - W, player.x - 155)) - cam) *
-      Math.min(1, dt * 9)
+        const state = {
+          hp, ammo, score, lives, time, attack, attackId, throwCooldown,
+          invincible, knockbackTime, knockbackVelocity, playerStride,
+          playerAirTime, playerClimbDistance, checkpoint, shake, cam,
+        }
+        const result = stepPlaying({
+          dt,
+          age,
+          stageId: activeLocation.id,
+          height: H,
+          state,
+          input: {
+            axis: (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0) -
+              (keys.has("ArrowLeft") || keys.has("KeyA") ? 1 : 0),
+            jumpPressed: pressed.has("KeyZ") || pressed.has("Space"),
+            jumpHeld: keys.has("KeyZ") || keys.has("Space"),
+            climbUp: keys.has("ArrowUp") || keys.has("KeyW"),
+            climbDown: keys.has("ArrowDown") || keys.has("KeyS"),
+            attackPressed: pressed.has("KeyX"),
+            throwPressed: pressed.has("KeyC"),
+          },
+          player,
+          movement,
+          enemies,
+          terrain: stagePlatforms,
+          pickups,
+          shots,
+          particles,
+          hitEnemies,
+          onDeath: die,
+          onJump: () => beep(560, 0.1, "triangle"),
+          onCheckpoint: () => {
+            status.textContent = "CHECKPOINT REACHED"
+            beep(880, 0.2, "triangle")
+          },
+          onAttack: () => beep(720, 0.07, "sawtooth"),
+          onThrow: () => beep(1200, 0.08, "triangle"),
+          onPickup: (item) => {
+            burst(item.x, item.y, "#d9f49b")
+            beep(950, 0.15, "triangle")
+          },
+          onEnemyHit: (enemy, damage) => {
+            score += damage.score
+            hit(enemy, damage)
+          },
+          onPlayerHit: (amount, sourceX) => {
+            hp = state.hp
+            lives = state.lives
+            invincible = state.invincible
+            knockbackTime = state.knockbackTime
+            knockbackVelocity = state.knockbackVelocity
+            return hurt(amount, sourceX)
+          },
+        })
+        ;({ shots, particles } = result)
+        ;({
+          hp, ammo, score, lives, time, attack, attackId, throwCooldown,
+          invincible, knockbackTime, knockbackVelocity, playerStride,
+          playerAirTime, playerClimbDistance, checkpoint, shake, cam,
+        } = state)
     pressed.clear()
       },
     })

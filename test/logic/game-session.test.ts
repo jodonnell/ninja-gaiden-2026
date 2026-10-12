@@ -3,6 +3,7 @@ import {
   GameSession,
   completeBoss,
   damagePlayer,
+  stepPlaying,
   stepParticles,
   stepProjectiles,
   stepEnemies,
@@ -12,6 +13,7 @@ import {
 import { spawn, type RoamingEnemy } from "../../src/game/overworld"
 import { playerSpawnPosition } from "../../src/game/pickups"
 import { platforms } from "../../src/game/world"
+import { createPlayerMovementState } from "../../src/game/player-movement"
 
 describe("game session interactions", () => {
   it("takes a lethal hit, retries, and respawns at the checkpoint", () => {
@@ -180,7 +182,9 @@ describe("projectile and particle simulation", () => {
       [enemy],
       0.2,
       (target, result) => hits.push(result.damage + target.hp),
-      () => fail("friendly projectile should not hit the player"),
+      () => {
+        throw new Error("friendly projectile should not hit the player")
+      },
     )
 
     expect(enemy.hp).toBe(1)
@@ -206,7 +210,9 @@ describe("projectile and particle simulation", () => {
       { x: 18, y: 0, w: 12, h: 12 },
       [],
       0.2,
-      () => fail("hostile projectile should not hit enemies"),
+      () => {
+        throw new Error("hostile projectile should not hit enemies")
+      },
       (sourceX) => sources.push(sourceX),
     )
 
@@ -228,11 +234,22 @@ describe("projectile and particle simulation", () => {
 })
 
 describe("stage enemy simulation", () => {
-  const baseArgs = (enemy: Parameters<typeof stepEnemies>[0]["enemies"][number]) => ({
+  const baseArgs = (
+    enemy: Parameters<typeof stepEnemies>[0]["enemies"][number],
+  ) => ({
     dt: 1 / 60,
     age: 1,
     stageId: 0,
-    player: { x: 40, y: 100, w: 13, h: 28, vx: 0, vy: 0, grounded: false, wall: 0 },
+    player: {
+      x: 40,
+      y: 100,
+      w: 13,
+      h: 28,
+      vx: 0,
+      vy: 0,
+      grounded: false,
+      wall: 0,
+    },
     facing: 1,
     enemies: [enemy],
     terrain: [],
@@ -246,32 +263,182 @@ describe("stage enemy simulation", () => {
 
   it("fires a monk projectile toward the player when its attack timer expires", () => {
     const monk = {
-      x: 100, y: 100, w: 14, h: 27, vx: 0, vy: 0, grounded: false, wall: 0,
-      hp: 2, kind: "monk" as const, stride: 0, home: 100, dir: 1, timer: 2.5, flash: 0,
+      x: 100,
+      y: 100,
+      w: 14,
+      h: 27,
+      vx: 0,
+      vy: 0,
+      grounded: false,
+      wall: 0,
+      hp: 2,
+      kind: "monk" as const,
+      stride: 0,
+      home: 100,
+      dir: 1,
+      timer: 2.5,
+      flash: 0,
     }
     const args = baseArgs(monk)
 
     stepEnemies(args)
 
-    expect(args.onHostileShot).toHaveBeenCalledWith(expect.objectContaining({
-      hostile: true,
-      vx: -125,
-      life: 3,
-    }))
+    expect(args.onHostileShot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hostile: true,
+        vx: -125,
+        life: 3,
+      }),
+    )
     expect(monk.timer).toBe(0)
   })
 
   it("resolves a sword hit and reports contact damage during one enemy step", () => {
     const guard = {
-      x: 50, y: 100, w: 14, h: 27, vx: 0, vy: 0, grounded: false, wall: 0,
-      hp: 2, kind: "guard" as const, stride: 0, home: 50, dir: 1, timer: 0, flash: 0,
+      x: 50,
+      y: 100,
+      w: 14,
+      h: 27,
+      vx: 0,
+      vy: 0,
+      grounded: false,
+      wall: 0,
+      hp: 2,
+      kind: "guard" as const,
+      stride: 0,
+      home: 50,
+      dir: 1,
+      timer: 0,
+      flash: 0,
     }
     const args = { ...baseArgs(guard), attackActive: true }
 
     stepEnemies(args)
 
     expect(guard.hp).toBe(1)
-    expect(args.onEnemyHit).toHaveBeenCalledWith(guard, expect.objectContaining({ damage: 1 }))
+    expect(args.onEnemyHit).toHaveBeenCalledWith(
+      guard,
+      expect.objectContaining({ damage: 1 }),
+    )
     expect(args.onPlayerHit).toHaveBeenCalledWith(2, guard.x)
+  })
+})
+
+describe("complete playing frame", () => {
+  const makeFrame = (overrides: Record<string, unknown> = {}) => {
+    const state = {
+      hp: 10,
+      ammo: 2,
+      score: 0,
+      lives: 3,
+      time: 100,
+      attack: 0,
+      attackId: 0,
+      throwCooldown: 0,
+      invincible: 0,
+      knockbackTime: 0,
+      knockbackVelocity: 0,
+      playerStride: 0,
+      playerAirTime: 0,
+      playerClimbDistance: 0,
+      checkpoint: 0,
+      shake: 0,
+      cam: 0,
+      ...overrides,
+    }
+    const player = {
+      x: 64,
+      y: 192,
+      w: 13,
+      h: 28,
+      vx: 0,
+      vy: 0,
+      grounded: true,
+      wall: 0,
+    }
+    const healthPickup = {
+      x: 64,
+      y: 192,
+      w: 10,
+      h: 12,
+      kind: "health" as const,
+      taken: false,
+    }
+    const callbacks = {
+      onDeath: vi.fn(() => 2),
+      onJump: vi.fn(),
+      onCheckpoint: vi.fn(),
+      onAttack: vi.fn(),
+      onThrow: vi.fn(),
+      onPickup: vi.fn(),
+      onEnemyHit: vi.fn(),
+      onPlayerHit: vi.fn(() => ({
+        hp: 10,
+        lives: 3,
+        invincible: 1.25,
+        knockbackTime: 0.38,
+        knockbackVelocity: -155,
+      })),
+    }
+    const args = {
+      dt: 1 / 60,
+      age: 0,
+      stageId: 0,
+      height: 270,
+      state,
+      input: {
+        axis: 0,
+        jumpPressed: false,
+        jumpHeld: false,
+        climbUp: false,
+        climbDown: false,
+        attackPressed: false,
+        throwPressed: false,
+      },
+      player,
+      movement: createPlayerMovementState(),
+      enemies: [],
+      terrain: platforms,
+      pickups: [healthPickup],
+      shots: [],
+      particles: [],
+      hitEnemies: new Map(),
+      ...callbacks,
+    }
+    return { args, callbacks, healthPickup }
+  }
+
+  it("coordinates an attack, shuriken throw, and pickup in one stage frame", () => {
+    const { args, callbacks, healthPickup } = makeFrame({ ammo: 2 })
+    args.input.attackPressed = true
+    args.input.throwPressed = true
+
+    const result = stepPlaying(args)
+
+    expect(result.state).toMatchObject({
+      hp: 16,
+      ammo: 1,
+      score: 100,
+      attackId: 1,
+      attack: 0.23,
+    })
+    expect(result.shots).toHaveLength(1)
+    expect(healthPickup.taken).toBe(true)
+    expect(callbacks.onAttack).toHaveBeenCalledOnce()
+    expect(callbacks.onThrow).toHaveBeenCalledOnce()
+    expect(callbacks.onPickup).toHaveBeenCalledWith(healthPickup)
+  })
+
+  it("ends a frame at the time limit before advancing player simulation", () => {
+    const { args, callbacks } = makeFrame({ time: 0.005 })
+    const initialX = args.player.x
+
+    const result = stepPlaying({ ...args, dt: 0.01 })
+
+    expect(result.state.time).toBeLessThanOrEqual(0)
+    expect(result.state.lives).toBe(2)
+    expect(args.player.x).toBe(initialX)
+    expect(callbacks.onDeath).toHaveBeenCalledOnce()
+    expect(callbacks.onPickup).not.toHaveBeenCalled()
   })
 })

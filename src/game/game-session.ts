@@ -5,8 +5,19 @@ import {
   type Combatant,
   type DamageResult,
 } from "./combat"
-import { patrolDirection } from "./enemies"
 import { move, overlaps, type Body, type Rect } from "./world"
+import {
+  collectPickup,
+  consumeAmmo,
+  updateCheckpoint,
+  type Pickup,
+} from "./pickups"
+import {
+  updatePlayerMovement,
+  type PlayerMovementState,
+} from "./player-movement"
+import { patrolDirection } from "./enemies"
+import { WORLD_END } from "./world"
 import {
   locationAt,
   roamingEncounter,
@@ -38,12 +49,215 @@ export type SessionParticle = {
   life: number
 }
 
-export type SessionEnemy = Body & Combatant & {
-  stride: number
-  home: number
-  dir: number
-  timer: number
-  flash: number
+export type SessionEnemy = Body &
+  Combatant & {
+    stride: number
+    home: number
+    dir: number
+    timer: number
+    flash: number
+  }
+
+export type PlayingFrameState = {
+  hp: number
+  ammo: number
+  score: number
+  lives: number
+  time: number
+  attack: number
+  attackId: number
+  throwCooldown: number
+  invincible: number
+  knockbackTime: number
+  knockbackVelocity: number
+  playerStride: number
+  playerAirTime: number
+  playerClimbDistance: number
+  checkpoint: number
+  shake: number
+  cam: number
+}
+
+export type PlayingFrameInput = {
+  axis: number
+  jumpPressed: boolean
+  jumpHeld: boolean
+  climbUp: boolean
+  climbDown: boolean
+  attackPressed: boolean
+  throwPressed: boolean
+}
+
+export type DamageState = SessionVitals & {
+  knockbackTime: number
+  knockbackVelocity: number
+}
+
+/** Runs one complete stage frame without depending on browser or rendering APIs. */
+export function stepPlaying<
+  TEnemy extends SessionEnemy,
+  TParticle extends SessionParticle,
+>(args: {
+  dt: number
+  age: number
+  stageId: number
+  height: number
+  state: PlayingFrameState
+  input: PlayingFrameInput
+  player: Body
+  movement: PlayerMovementState
+  enemies: TEnemy[]
+  terrain: Rect[]
+  pickups: Pickup[]
+  shots: SessionProjectile[]
+  particles: TParticle[]
+  hitEnemies: Map<Combatant, number>
+  onDeath(): number
+  onJump(): void
+  onCheckpoint(checkpoint: number): void
+  onAttack(): void
+  onThrow(): void
+  onPickup(pickup: Pickup): void
+  onEnemyHit(enemy: TEnemy, result: DamageResult): void
+  onPlayerHit(amount: number, sourceX: number): DamageState
+}): {
+  state: PlayingFrameState
+  shots: SessionProjectile[]
+  particles: TParticle[]
+} {
+  const {
+    dt,
+    age,
+    stageId,
+    height,
+    state,
+    input,
+    player,
+    movement,
+    enemies,
+    terrain,
+    pickups,
+    hitEnemies,
+  } = args
+  state.time -= dt
+  if (state.time <= 0) {
+    state.lives = args.onDeath()
+    return { state, shots: args.shots, particles: args.particles }
+  }
+  state.attack = Math.max(0, state.attack - dt)
+  state.throwCooldown -= dt
+  state.invincible -= dt
+  state.knockbackTime = Math.max(0, state.knockbackTime - dt)
+  state.shake -= dt
+
+  const movementResult = updatePlayerMovement(
+    player,
+    movement,
+    {
+      axis: input.axis,
+      jumpPressed: input.jumpPressed,
+      jumpHeld: input.jumpHeld,
+      climbUp: input.climbUp,
+      climbDown: input.climbDown,
+      knockbackTime: state.knockbackTime,
+      knockbackVelocity: state.knockbackVelocity,
+    },
+    dt,
+    terrain,
+  )
+  if (movementResult.jumped) args.onJump()
+  const previousPlayerX = movementResult.previousX
+  const previousPlayerY = movementResult.previousY
+  if (player.grounded)
+    state.playerStride += Math.abs(player.x - previousPlayerX)
+  state.playerAirTime =
+    player.grounded || player.wall ? 0 : state.playerAirTime + dt
+  state.playerClimbDistance = player.wall
+    ? state.playerClimbDistance + Math.abs(player.y - previousPlayerY)
+    : 0
+  if (player.y > height + 40 || (stageId === 2 && player.y + player.h >= 254)) {
+    state.lives = args.onDeath()
+    return { state, shots: args.shots, particles: args.particles }
+  }
+
+  const reachedCheckpoint = updateCheckpoint(state.checkpoint, player.x)
+  if (reachedCheckpoint !== state.checkpoint) {
+    state.checkpoint = reachedCheckpoint
+    args.onCheckpoint(reachedCheckpoint)
+  }
+  if (input.attackPressed && state.attack === 0) {
+    state.attack = 0.23
+    state.attackId++
+    args.onAttack()
+  }
+  let { shots } = args
+  const ammoAfterThrow = input.throwPressed
+    ? consumeAmmo(state.ammo)
+    : undefined
+  if (ammoAfterThrow !== undefined && state.throwCooldown <= 0) {
+    state.ammo = ammoAfterThrow
+    state.throwCooldown = 0.28
+    shots.push({
+      x: player.x + 5,
+      y: player.y + 11,
+      w: 9,
+      h: 9,
+      vx: movement.facing * 260,
+      vy: 0,
+      hostile: false,
+      life: 2,
+    })
+    args.onThrow()
+  }
+  for (const item of pickups) {
+    const stats = collectPickup(item, state, overlaps(player, item))
+    if (!stats) continue
+    state.hp = stats.hp
+    state.ammo = stats.ammo
+    state.score = stats.score
+    args.onPickup(item)
+  }
+
+  stepEnemies({
+    dt,
+    age,
+    stageId,
+    player,
+    facing: movement.facing,
+    enemies,
+    terrain,
+    attackActive: state.attack > 0.04,
+    attackId: state.attackId,
+    hitEnemies,
+    onEnemyHit: (enemy, result) => {
+      state.score += result.score
+      args.onEnemyHit(enemy, result)
+    },
+    onPlayerHit: (amount, sourceX) => {
+      const damage = args.onPlayerHit(amount, sourceX)
+      Object.assign(state, damage)
+    },
+    onHostileShot: (shot) => shots.push(shot),
+  })
+  shots = stepProjectiles(
+    shots,
+    player,
+    enemies,
+    dt,
+    (enemy, result) => {
+      state.score += result.score
+      args.onEnemyHit(enemy, result)
+    },
+    (sourceX) => {
+      const damage = args.onPlayerHit(2, sourceX)
+      Object.assign(state, damage)
+    },
+  )
+  const particles = stepParticles(args.particles, dt)
+  state.cam +=
+    (Math.max(0, Math.min(WORLD_END - 480, player.x - 155)) - state.cam) *
+    Math.min(1, dt * 9)
+  return { state, shots, particles }
 }
 
 export type SessionVitals = { hp: number; lives: number; invincible: number }
