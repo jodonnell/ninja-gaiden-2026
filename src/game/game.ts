@@ -17,6 +17,7 @@ import { ninjaFrame } from "./animation"
 import type { NinjaPose } from "./animation"
 import { patrolDirection } from "./enemies"
 import { resolveShurikenHit, resolveSwordHit, type DamageResult } from "./combat"
+import { collectPickup, consumeAmmo, playerSpawnPosition, updateCheckpoint, type Pickup } from "./pickups"
 import { GameFlow } from "./flow"
 import { Application, Sprite, Texture } from "pixi.js"
 import ryuUrl from "../../assets/ryu-sheet.png"
@@ -49,7 +50,6 @@ type Particle = {
   color: string
 }
 type Shot = Rect & { vx: number; vy: number; hostile: boolean; life: number }
-type Pickup = Rect & { kind: "health" | "ammo"; taken: boolean }
 const SWORD_ATTACK_SECONDS = 0.23
 
 export async function startGame() {
@@ -294,8 +294,7 @@ export async function startGame() {
     ammo = 12
     time = 180
     player = {
-      x: checkpoint || 64,
-      y: floorAt(stagePlatforms, checkpoint || 64) - 28,
+      ...playerSpawnPosition(checkpoint, stagePlatforms),
       w: 13,
       h: 28,
       vx: 0,
@@ -604,8 +603,9 @@ export async function startGame() {
       die()
       return
     }
-    if (player.x > 1545 && checkpoint === 0) {
-      checkpoint = 1550
+    const reachedCheckpoint = updateCheckpoint(checkpoint, player.x)
+    if (reachedCheckpoint !== checkpoint) {
+      checkpoint = reachedCheckpoint
       status.textContent = "CHECKPOINT REACHED"
       beep(880, 0.2, "triangle")
     }
@@ -614,8 +614,9 @@ export async function startGame() {
       attackId++
       beep(720, 0.07, "sawtooth")
     }
-    if (pressed.has("KeyC") && ammo > 0 && throwCooldown <= 0) {
-      ammo--
+    const ammoAfterThrow = pressed.has("KeyC") ? consumeAmmo(ammo) : undefined
+    if (ammoAfterThrow !== undefined && throwCooldown <= 0) {
+      ammo = ammoAfterThrow
       throwCooldown = 0.28
       shots.push({
         x: player.x + 5,
@@ -629,15 +630,16 @@ export async function startGame() {
       })
       beep(1200, 0.08, "triangle")
     }
-    for (const item of pickups)
-      if (!item.taken && overlaps(player, item)) {
-        item.taken = true
-        if (item.kind === "health") hp = Math.min(16, hp + 6)
-        else ammo += 8
-        score += 100
+    for (const item of pickups) {
+      const updatedStats = collectPickup(item, { hp, ammo, score }, overlaps(player, item))
+      if (updatedStats) {
+        hp = updatedStats.hp
+        ammo = updatedStats.ammo
+        score = updatedStats.score
         burst(item.x, item.y, "#d9f49b")
         beep(950, 0.15, "triangle")
       }
+    }
     const blade = {
       x: movement.facing > 0 ? player.x + 8 : player.x - 28,
       y: player.y + 3,
