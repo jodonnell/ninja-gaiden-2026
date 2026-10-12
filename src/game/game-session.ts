@@ -20,6 +20,7 @@ import { patrolDirection } from "./enemies"
 import { WORLD_END } from "./world"
 import {
   locationAt,
+  map,
   roamingEncounter,
   updateRoamingEnemies,
   walkable,
@@ -455,7 +456,7 @@ export function stepOverworld(args: {
   visual: MapPosition
   enemies: RoamingEnemy[]
   input: OverworldInput
-}): { position: MapPosition; cooldown: number; location?: Location } {
+}): { position: MapPosition; cooldown: number; location?: Location; fizzled?: RoamingEnemy[] } {
   const { dt, visual, enemies, input } = args
   let { cooldown, position } = args
   cooldown -= dt
@@ -463,8 +464,25 @@ export function stepOverworld(args: {
   visual.y += (position.y - visual.y) * Math.min(1, dt * 22)
   updateRoamingEnemies(enemies, dt)
 
-  const encounter =
-    cooldown <= 0 ? roamingEncounter(enemies, position) : undefined
+  const touchingMonster = cooldown <= 0
+    ? enemies.some(
+        (enemy) => Math.hypot(enemy.x - position.x, enemy.y - position.y) < 0.55,
+      )
+    : false
+  const onPath = [0, 8, 14].includes(
+    // Path tiles, including bridges and stage entrances.
+    map[position.y]?.[position.x] ?? -1,
+  )
+  const fizzled = touchingMonster && onPath
+    ? enemies.filter(
+        (enemy) => Math.hypot(enemy.x - position.x, enemy.y - position.y) < 0.55,
+      )
+    : []
+  if (fizzled.length) {
+    for (const enemy of fizzled) enemies.splice(enemies.indexOf(enemy), 1)
+    return { position, cooldown, fizzled }
+  }
+  const encounter = touchingMonster ? roamingEncounter(enemies, position) : undefined
   if (encounter) return { position, cooldown, location: encounter }
 
   if (cooldown <= 0) {

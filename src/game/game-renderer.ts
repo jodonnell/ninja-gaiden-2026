@@ -268,7 +268,10 @@ function draw() {
     flow.state === "transition" ||
     (flow.state === "paused" && flow.pausedFrom === "overworld")
   ) {
-    drawOverworld(ctx, overworldSheet, mapVisual, age, cleared, mapEnemies)
+    {
+      drawOverworld(ctx, overworldSheet, mapVisual, age, cleared, mapEnemies)
+      for (const p of particles) rect(p.x - cam, p.y, 2, 2, p.color)
+    }
     if (flow.state === "transition") {
       rect(0, 0, W, H, `rgba(5,12,22,${1 - flow.transitionTime / 0.7})`)
       text(stageName, 90, 132, "#f5e2b4", 12)

@@ -16,6 +16,7 @@ import { GameStageRuntime, type RuntimeEnemy } from "./game-stage-runtime"
 import { HEIGHT as H } from "./world"
 import { GameFeedback } from "./game-feedback"
 import type { Location } from "./overworld"
+import { MAP_TOP, TILE } from "./overworld"
 
 export function burst(
   runtime: GameStageRuntime,
@@ -145,6 +146,15 @@ export function runGameLoop(options: GameLoopOptions) {
         })
         runtime.mapPosition = result.position
         runtime.mapCooldown = result.cooldown
+        runtime.particles = runtime.particles.filter((particle) => particle.life > 0)
+        for (const particle of runtime.particles) {
+          particle.x += particle.vx * dt
+          particle.y += particle.vy * dt
+          particle.vy += 300 * dt
+          particle.life -= dt
+        }
+        for (const enemy of result.fizzled ?? [])
+          burst(runtime, enemy.x * TILE + TILE / 2, MAP_TOP + enemy.y * TILE + TILE / 2, "#b95862", 12)
         if (result.location) enterStage(result.location)
         input.clearPressed()
       },

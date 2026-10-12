@@ -142,12 +142,24 @@ describe("overworld simulation step", () => {
     expect(result.location?.id).toBe(0)
   })
 
-  it("starts an encounter when a roaming enemy reaches the player", () => {
+  it("fizzles and removes a roaming enemy when it reaches the player", () => {
     const enemy: RoamingEnemy = { x: spawn.x, y: spawn.y, vx: 0, vy: 0 }
-    const result = step({ enemies: [enemy] })
+    const enemies = [enemy]
+    const result = step({ enemies })
+
+    expect(result.location).toBeUndefined()
+    expect(result.fizzled).toEqual([enemy])
+    expect(enemies).toEqual([])
+    expect(result.position).toEqual(spawn)
+  })
+
+  it("starts a stage encounter on monster contact away from the path", () => {
+    const position = { x: 3, y: 6 }
+    const enemy: RoamingEnemy = { ...position, vx: 0, vy: 0 }
+    const result = step({ position, visual: { ...position }, enemies: [enemy] })
 
     expect(result.location?.id).toBe(0)
-    expect(result.position).toEqual(spawn)
+    expect(result.fizzled).toBeUndefined()
   })
 
   it("does not move during the tile cooldown", () => {
