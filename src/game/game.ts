@@ -17,6 +17,8 @@ import { collectPickup, consumeAmmo, playerSpawnPosition, updateCheckpoint, type
 import { GameFlow } from "./flow"
 import {
   GameSession,
+  completeBoss,
+  damagePlayer,
   stepOverworld,
   stepParticles,
   stepProjectiles,
@@ -449,8 +451,12 @@ export async function startGame() {
   }
   function die() {
     if (flow.state !== "playing") return
+    // Environmental deaths bypass the hit and invulnerability rules.
     lives--
     flow.state = "dead"
+    showDeath()
+  }
+  function showDeath() {
     beep(100, 0.4, "sawtooth")
     show(
       lives > 0 ? "FALLEN" : "GAME OVER",
@@ -462,9 +468,12 @@ export async function startGame() {
     status.textContent = lives > 0 ? "MISSION INTERRUPTED" : "GAME OVER"
   }
   function hurt(amount: number, from: number) {
-    if (invincible > 0) return
-    hp -= amount
-    invincible = 1.25
+    const vitals = { hp, lives, invincible }
+    const damage = damagePlayer(vitals, amount, flow)
+    if (damage === "ignored") return
+    hp = vitals.hp
+    lives = vitals.lives
+    invincible = vitals.invincible
     knockbackTime = 0.38
     knockbackVelocity = player.x < from ? -155 : 155
     player.vx = knockbackVelocity
@@ -477,7 +486,7 @@ export async function startGame() {
     shake = 0.18
     burst(player.x + 7, player.y + 12, "#f3cb9e")
     beep(130, 0.15, "sawtooth")
-    if (hp <= 0) die()
+    if (damage === "dead") showDeath()
   }
   function hit(e: Enemy, result: DamageResult) {
     if (result.damage === 0) return
@@ -488,8 +497,7 @@ export async function startGame() {
     if (result.defeated) {
       burst(e.x, e.y, "#e77b65", 20)
       if (e.kind === "boss") {
-        cleared.add(activeLocation.id)
-        flow.state = "won"
+        if (!completeBoss(flow, cleared, activeLocation.id)) return
         show(
           "DAWN BREAKS",
           stages[activeLocation.id].boss +

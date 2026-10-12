@@ -32,6 +32,36 @@ export type SessionParticle = {
   life: number
 }
 
+export type SessionVitals = { hp: number; lives: number; invincible: number }
+
+/** Applies a gameplay hit and records whether it ended the current life. */
+export function damagePlayer(
+  vitals: SessionVitals,
+  amount: number,
+  flow: GameFlow,
+): "ignored" | "hit" | "dead" {
+  if (flow.state !== "playing" || vitals.invincible > 0 || amount <= 0)
+    return "ignored"
+  vitals.hp -= amount
+  vitals.invincible = 1.25
+  if (vitals.hp > 0) return "hit"
+  vitals.lives--
+  flow.state = "dead"
+  return "dead"
+}
+
+/** Records a boss clear once and moves the session to its win state. */
+export function completeBoss(
+  flow: GameFlow,
+  clearedStages: Set<number>,
+  stageId: number,
+) {
+  if (flow.state !== "playing" || clearedStages.has(stageId)) return false
+  clearedStages.add(stageId)
+  flow.state = "won"
+  return true
+}
+
 /** Advances projectiles, resolving player and enemy collisions. */
 export function stepProjectiles<
   TShot extends SessionProjectile,
@@ -67,7 +97,10 @@ export function stepProjectiles<
 }
 
 /** Advances short lived combat particles independently of drawing. */
-export function stepParticles<T extends SessionParticle>(particles: T[], dt: number): T[] {
+export function stepParticles<T extends SessionParticle>(
+  particles: T[],
+  dt: number,
+): T[] {
   for (const particle of particles) {
     particle.x += particle.vx * dt
     particle.y += particle.vy * dt
@@ -93,7 +126,8 @@ export function stepOverworld(args: {
   visual.y += (position.y - visual.y) * Math.min(1, dt * 22)
   updateRoamingEnemies(enemies, dt)
 
-  const encounter = cooldown <= 0 ? roamingEncounter(enemies, position) : undefined
+  const encounter =
+    cooldown <= 0 ? roamingEncounter(enemies, position) : undefined
   if (encounter) return { position, cooldown, location: encounter }
 
   if (cooldown <= 0) {
@@ -102,7 +136,11 @@ export function stepOverworld(args: {
     if ((dx || dy) && walkable(position.x + dx, position.y + dy)) {
       position = { x: position.x + dx, y: position.y + dy }
       cooldown = 0.14
-      return { position, cooldown, location: locationAt(position.x, position.y) }
+      return {
+        position,
+        cooldown,
+        location: locationAt(position.x, position.y),
+      }
     }
   }
   return { position, cooldown }

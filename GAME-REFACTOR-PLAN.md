@@ -8,7 +8,7 @@ Goal: make gameplay behavior independently testable while keeping `game.ts` focu
 - [x] **Extract combat rules** for sword attacks, shuriken hits, enemy damage, and boss defeat. Add tests for damage, scoring, and one-hit-per-attack behavior.
 - [x] **Extract pickups and checkpoints** so collection, health and ammo limits, scoring, and respawn positions can be tested directly.
 - [ ] **Separate simulation from rendering and browser setup.** Keep Pixi, DOM, and drawing in `game.ts`; move the gameplay update into a testable game-session module.
-- [ ] **Add session-level tests** for interactions across systems, such as taking damage then respawning, or defeating the boss and returning to the map.
+- [x] **Add session-level tests** for interactions across systems, including taking damage then respawning and defeating the boss and returning to the map.
 - [ ] **Validate the refactor** by running tests, lint, and build, then review whether `game.ts` is mostly wiring rather than gameplay logic.
 
 Work through the checklist in order. Keep each extraction and its tests in a separate commit so regressions are easier to track.

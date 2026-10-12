@@ -1,12 +1,57 @@
 import { GameFlow } from "../../src/game/flow"
 import {
   GameSession,
+  completeBoss,
+  damagePlayer,
   stepParticles,
   stepProjectiles,
   stepOverworld,
   type GameSessionHandlers,
 } from "../../src/game/game-session"
 import { spawn, type RoamingEnemy } from "../../src/game/overworld"
+import { playerSpawnPosition } from "../../src/game/pickups"
+import { platforms } from "../../src/game/world"
+
+describe("game session interactions", () => {
+  it("takes a lethal hit, retries, and respawns at the checkpoint", () => {
+    const flow = new GameFlow()
+    flow.state = "playing"
+    const player = { hp: 2, lives: 3, invincible: 0 }
+
+    expect(damagePlayer(player, 2, flow)).toBe("dead")
+    expect(player).toEqual({ hp: 0, lives: 2, invincible: 1.25 })
+    expect(flow.state).toBe("dead")
+    expect(flow.begin(player.lives)).toBe("started")
+    expect(playerSpawnPosition(1550, platforms)).toEqual({ x: 1550, y: 174 })
+    expect(flow.state).toBe("playing")
+  })
+
+  it("ignores damage during invulnerability and after the session ends", () => {
+    const flow = new GameFlow()
+    flow.state = "playing"
+    const player = { hp: 8, lives: 3, invincible: 0.5 }
+
+    expect(damagePlayer(player, 2, flow)).toBe("ignored")
+    expect(player.hp).toBe(8)
+    player.invincible = 0
+    flow.state = "won"
+    expect(damagePlayer(player, 2, flow)).toBe("ignored")
+    expect(player.hp).toBe(8)
+  })
+
+  it("records a boss clear once and returns the won session to the map", () => {
+    const flow = new GameFlow()
+    flow.state = "playing"
+    const cleared = new Set<number>()
+
+    expect(completeBoss(flow, cleared, 2)).toBe(true)
+    expect(flow.state).toBe("won")
+    expect(cleared).toEqual(new Set([2]))
+    expect(completeBoss(flow, cleared, 2)).toBe(false)
+    expect(flow.begin(3)).toBe("map")
+    expect(flow.state).toBe("overworld")
+  })
+})
 
 describe("game session update routing", () => {
   const createHandlers = (calls: string[]): GameSessionHandlers => ({
@@ -58,7 +103,9 @@ describe("game session fixed-step clock", () => {
 })
 
 describe("overworld simulation step", () => {
-  const step = (overrides: Partial<Parameters<typeof stepOverworld>[0]> = {}) => {
+  const step = (
+    overrides: Partial<Parameters<typeof stepOverworld>[0]> = {},
+  ) => {
     const args: Parameters<typeof stepOverworld>[0] = {
       dt: 1 / 60,
       cooldown: 0,
@@ -72,7 +119,9 @@ describe("overworld simulation step", () => {
   }
 
   it("moves one walkable tile and starts the movement cooldown", () => {
-    const result = step({ input: { left: false, right: true, up: false, down: false } })
+    const result = step({
+      input: { left: false, right: true, up: false, down: false },
+    })
 
     expect(result.position).toEqual({ x: 4, y: 7 })
     expect(result.cooldown).toBe(0.14)
