@@ -16,6 +16,7 @@ import { createPlayerMovementState, resetPlayerMovementState, updatePlayerMoveme
 import { ninjaFrame } from "./animation"
 import type { NinjaPose } from "./animation"
 import { patrolDirection } from "./enemies"
+import { resolveShurikenHit, resolveSwordHit, type DamageResult } from "./combat"
 import { GameFlow } from "./flow"
 import { Application, Sprite, Texture } from "pixi.js"
 import ryuUrl from "../../assets/ryu-sheet.png"
@@ -476,13 +477,13 @@ export async function startGame() {
     beep(130, 0.15, "sawtooth")
     if (hp <= 0) die()
   }
-  function hit(e: Enemy, damage: number) {
-    e.hp -= damage
+  function hit(e: Enemy, result: DamageResult) {
+    if (result.damage === 0) return
     e.flash = 0.14
     burst(e.x + e.w / 2, e.y + 12, "#ffdf8d")
     beep(260, 0.07)
-    if (e.hp <= 0) {
-      score += e.kind === "boss" ? 5000 : e.kind === "bird" ? 150 : 200
+    score += result.score
+    if (result.defeated) {
       burst(e.x, e.y, "#e77b65", 20)
       if (e.kind === "boss") {
         cleared.add(activeLocation.id)
@@ -709,13 +710,9 @@ export async function startGame() {
         move(e, dt, stagePlatforms)
         if (e.grounded) e.stride += Math.abs(e.x - previousEnemyX)
       }
-      if (
-        attack > 0.04 &&
-        overlaps(blade, e) &&
-        hitEnemies.get(e) !== attackId
-      ) {
-        hitEnemies.set(e, attackId)
-        hit(e, 1)
+      if (attack > 0.04 && overlaps(blade, e)) {
+        const result = resolveSwordHit(e, attackId, hitEnemies)
+        if (result) hit(e, result)
       }
       if (e.hp > 0 && overlaps(player, e)) hurt(e.kind === "boss" ? 3 : 2, e.x)
     }
@@ -731,7 +728,8 @@ export async function startGame() {
       } else
         for (const e of enemies)
           if (e.hp > 0 && overlaps(s, e)) {
-            hit(e, 2)
+            const result = resolveShurikenHit(e)
+            if (result) hit(e, result)
             s.life = 0
             break
           }
