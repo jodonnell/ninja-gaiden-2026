@@ -1,4 +1,6 @@
 import type { GameFlow } from "./flow"
+import { resolveShurikenHit, type Combatant, type DamageResult } from "./combat"
+import { overlaps, type Rect } from "./world"
 import {
   locationAt,
   roamingEncounter,
@@ -14,6 +16,65 @@ export type OverworldInput = {
   right: boolean
   up: boolean
   down: boolean
+}
+
+export type SessionProjectile = Rect & {
+  vx: number
+  vy: number
+  hostile: boolean
+  life: number
+}
+export type SessionParticle = {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  life: number
+}
+
+/** Advances projectiles, resolving player and enemy collisions. */
+export function stepProjectiles<
+  TShot extends SessionProjectile,
+  TEnemy extends Rect & Combatant,
+>(
+  shots: TShot[],
+  player: Rect,
+  enemies: TEnemy[],
+  dt: number,
+  onEnemyHit: (enemy: TEnemy, result: DamageResult) => void,
+  onPlayerHit: (sourceX: number) => void,
+): TShot[] {
+  for (const shot of shots) {
+    shot.x += shot.vx * dt
+    shot.y += shot.vy * dt
+    shot.life -= dt
+    if (shot.hostile) {
+      if (overlaps(shot, player)) {
+        onPlayerHit(shot.x)
+        shot.life = 0
+      }
+    } else {
+      for (const enemy of enemies)
+        if (enemy.hp > 0 && overlaps(shot, enemy)) {
+          const result = resolveShurikenHit(enemy)
+          if (result) onEnemyHit(enemy, result)
+          shot.life = 0
+          break
+        }
+    }
+  }
+  return shots.filter((shot) => shot.life > 0)
+}
+
+/** Advances short lived combat particles independently of drawing. */
+export function stepParticles<T extends SessionParticle>(particles: T[], dt: number): T[] {
+  for (const particle of particles) {
+    particle.x += particle.vx * dt
+    particle.y += particle.vy * dt
+    particle.vy += 300 * dt
+    particle.life -= dt
+  }
+  return particles.filter((particle) => particle.life > 0)
 }
 
 /** Advances map encounters, player movement, and the visual map marker. */

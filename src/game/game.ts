@@ -12,10 +12,15 @@ import { createPlayerMovementState, resetPlayerMovementState, updatePlayerMoveme
 import { ninjaFrame } from "./animation"
 import type { NinjaPose } from "./animation"
 import { patrolDirection } from "./enemies"
-import { resolveShurikenHit, resolveSwordHit, type DamageResult } from "./combat"
+import { resolveSwordHit, type DamageResult } from "./combat"
 import { collectPickup, consumeAmmo, playerSpawnPosition, updateCheckpoint, type Pickup } from "./pickups"
 import { GameFlow } from "./flow"
-import { GameSession, stepOverworld } from "./game-session"
+import {
+  GameSession,
+  stepOverworld,
+  stepParticles,
+  stepProjectiles,
+} from "./game-session"
 import { Application, Sprite, Texture } from "pixi.js"
 import ryuUrl from "../../assets/ryu-sheet.png"
 import enemiesUrl from "../../assets/enemies-sheet.png"
@@ -706,32 +711,8 @@ export async function startGame() {
       }
       if (e.hp > 0 && overlaps(player, e)) hurt(e.kind === "boss" ? 3 : 2, e.x)
     }
-    for (const s of shots) {
-      s.x += s.vx * dt
-      s.y += s.vy * dt
-      s.life -= dt
-      if (s.hostile) {
-        if (overlaps(s, player)) {
-          hurt(2, s.x)
-          s.life = 0
-        }
-      } else
-        for (const e of enemies)
-          if (e.hp > 0 && overlaps(s, e)) {
-            const result = resolveShurikenHit(e)
-            if (result) hit(e, result)
-            s.life = 0
-            break
-          }
-    }
-    shots = shots.filter((s) => s.life > 0)
-    for (const p of particles) {
-      p.x += p.vx * dt
-      p.y += p.vy * dt
-      p.vy += 300 * dt
-      p.life -= dt
-    }
-    particles = particles.filter((p) => p.life > 0)
+    shots = stepProjectiles(shots, player, enemies, dt, hit, (x) => hurt(2, x))
+    particles = stepParticles(particles, dt)
     cam +=
       (Math.max(0, Math.min(WORLD_END - W, player.x - 155)) - cam) *
       Math.min(1, dt * 9)

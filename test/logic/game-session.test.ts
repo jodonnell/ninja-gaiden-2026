@@ -1,6 +1,8 @@
 import { GameFlow } from "../../src/game/flow"
 import {
   GameSession,
+  stepParticles,
+  stepProjectiles,
   stepOverworld,
   type GameSessionHandlers,
 } from "../../src/game/game-session"
@@ -104,5 +106,73 @@ describe("overworld simulation step", () => {
 
     expect(result.position).toEqual(spawn)
     expect(result.cooldown).toBeCloseTo(0.1 - 1 / 60)
+  })
+})
+
+describe("projectile and particle simulation", () => {
+  it("damages an enemy once and removes the colliding shuriken", () => {
+    const enemy = { x: 20, y: 10, w: 12, h: 12, hp: 3, kind: "guard" as const }
+    const projectile = {
+      x: 0,
+      y: 12,
+      w: 8,
+      h: 8,
+      vx: 100,
+      vy: 0,
+      hostile: false,
+      life: 1,
+    }
+    const hits: number[] = []
+
+    const remaining = stepProjectiles(
+      [projectile],
+      { x: 100, y: 100, w: 12, h: 12 },
+      [enemy],
+      0.2,
+      (target, result) => hits.push(result.damage + target.hp),
+      () => fail("friendly projectile should not hit the player"),
+    )
+
+    expect(enemy.hp).toBe(1)
+    expect(hits).toEqual([3])
+    expect(remaining).toEqual([])
+  })
+
+  it("damages the player on a hostile projectile collision", () => {
+    const projectile = {
+      x: 0,
+      y: 0,
+      w: 8,
+      h: 8,
+      vx: 100,
+      vy: 0,
+      hostile: true,
+      life: 1,
+    }
+    const sources: number[] = []
+
+    const remaining = stepProjectiles(
+      [projectile],
+      { x: 18, y: 0, w: 12, h: 12 },
+      [],
+      0.2,
+      () => fail("hostile projectile should not hit enemies"),
+      (sourceX) => sources.push(sourceX),
+    )
+
+    expect(sources).toEqual([20])
+    expect(remaining).toEqual([])
+  })
+
+  it("integrates particle motion and removes expired particles", () => {
+    const particles = [
+      { x: 0, y: 0, vx: 10, vy: -5, life: 1, color: "red" },
+      { x: 0, y: 0, vx: 0, vy: 0, life: 0.1, color: "blue" },
+    ]
+
+    const remaining = stepParticles(particles, 0.2)
+
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0]).toMatchObject({ x: 2, y: -1, vy: 55, life: 0.8 })
   })
 })
