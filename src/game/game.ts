@@ -1,13 +1,7 @@
-import { stages, floorAt, type EnemyKind } from "./stages"
+import { stages } from "./stages"
 import overworldUrl from "../../assets/overworld-sheet.png"
-import {
-  locations,
-  spawn,
-  type RoamingEnemy,
-} from "./overworld"
-import { createPlayerMovementState, resetPlayerMovementState } from "./player-movement"
+import type { Location } from "./overworld"
 import type { DamageResult } from "./combat"
-import { playerSpawnPosition, type Pickup } from "./pickups"
 import { GameFlow } from "./flow"
 import {
   GameSession,
@@ -20,33 +14,10 @@ import { Application, Sprite, Texture } from "pixi.js"
 import { drawGame } from "./game-renderer"
 import { GameInput } from "./game-input"
 import { GameController } from "./game-controller"
+import { GameStageRuntime, type RuntimeEnemy } from "./game-stage-runtime"
 import ryuUrl from "../../assets/ryu-sheet.png"
 import enemiesUrl from "../../assets/enemies-sheet.png"
-import {
-  WIDTH as W,
-  HEIGHT as H,
-  platforms,
-} from "./world"
-import type { Body, Rect } from "./world"
-
-type Enemy = Body & {
-  hp: number
-  kind: EnemyKind
-  stride: number
-  home: number
-  dir: number
-  timer: number
-  flash: number
-}
-type Particle = {
-  x: number
-  y: number
-  vx: number
-  vy: number
-  life: number
-  color: string
-}
-type Shot = Rect & { vx: number; vy: number; hostile: boolean; life: number }
+import { WIDTH as W, HEIGHT as H } from "./world"
 
 export async function startGame() {
   const app = new Application()
@@ -109,45 +80,7 @@ export async function startGame() {
   const status = document.querySelector("#status")!
   const flow = new GameFlow()
   const session = new GameSession(flow)
-  let activeLocation = locations[0]
-  const cleared = new Set<number>()
-  const mapEnemies: RoamingEnemy[] = [
-    { x: 3.5, y: 4.5, vx: 1.2, vy: 0.7 },
-    { x: 8.5, y: 2.5, vx: -0.8, vy: 1.1 },
-    { x: 11.5, y: 5.5, vx: 0.9, vy: -1.0 },
-    { x: 17.5, y: 9.5, vx: -1.1, vy: 0.8 },
-    { x: 22.5, y: 4.5, vx: 1.0, vy: 0.9 },
-    { x: 27.5, y: 8.5, vx: -0.9, vy: -0.8 },
-  ]
-  let mapPosition = { ...spawn }
-  const mapVisual = { ...spawn }
-  let mapCooldown = 0
-  let stagePlatforms = platforms
-  let player: Body
-  let enemies: Enemy[] = []
-  let particles: Particle[] = []
-  let shots: Shot[] = []
-  let pickups: Pickup[] = []
-  let hp = 16,
-    ammo = 12,
-    score = 0,
-    lives = 3,
-    time = 180,
-    cam = 0,
-    age = 0,
-    attack = 0,
-    throwCooldown = 0,
-    invincible = 0,
-    knockbackTime = 0,
-    knockbackVelocity = 0,
-    playerStride = 0,
-    playerAirTime = 0,
-    playerClimbDistance = 0,
-    checkpoint = 0,
-    shake = 0,
-    attackId = 0
-  const movement = createPlayerMovementState()
-  const hitEnemies = new Map<Enemy, number>()
+  const runtime = new GameStageRuntime()
   let sound = false,
     audio: AudioContext | undefined
   function beep(
@@ -174,113 +107,6 @@ export async function startGame() {
     osc.start()
     osc.stop(audio.currentTime + duration)
   }
-  function populate() {
-    enemies = stages[activeLocation.id].guards.map(({ x, kind }, i) => ({
-      x,
-      y: floorAt(stagePlatforms, x) - 27,
-      w: 14,
-      h: 27,
-      vx: 0,
-      vy: 0,
-      grounded: false,
-      wall: 0,
-      hp: kind === "guard" ? 1 : 2,
-      kind,
-      stride: 0,
-      home: x,
-      dir: i % 2 ? 1 : -1,
-      timer: i * 0.2,
-      flash: 0,
-    }))
-    for (const { x, kind } of stages[activeLocation.id].flyers)
-      enemies.push({
-        x,
-        y: 100,
-        w: 18,
-        h: 12,
-        vx: 0,
-        vy: 0,
-        grounded: false,
-        wall: 0,
-        hp: 1,
-        kind,
-        stride: 0,
-        home: x,
-        dir: -1,
-        timer: 0,
-        flash: 0,
-      })
-    enemies.push({
-      x: 3090,
-      y: 180,
-      w: 24,
-      h: 38,
-      vx: 0,
-      vy: 0,
-      grounded: false,
-      wall: 0,
-      hp: 24 + activeLocation.id * 4,
-      kind: "boss",
-      stride: 0,
-      home: 3090,
-      dir: -1,
-      timer: 1,
-      flash: 0,
-    })
-    pickups = [
-      { x: 271, y: 150, w: 10, h: 12, kind: "ammo", taken: false },
-      { x: 747, y: 142, w: 10, h: 12, kind: "health", taken: false },
-      { x: 1080, y: 121, w: 10, h: 12, kind: "ammo", taken: false },
-      { x: 1410, y: 137, w: 10, h: 12, kind: "health", taken: false },
-      { x: 1695, y: 126, w: 10, h: 12, kind: "ammo", taken: false },
-      { x: 2050, y: 138, w: 10, h: 12, kind: "health", taken: false },
-      { x: 2430, y: 119, w: 10, h: 12, kind: "ammo", taken: false },
-      { x: 2750, y: 199, w: 10, h: 12, kind: "health", taken: false },
-    ]
-    if (activeLocation.id > 0) {
-      pickups = stagePlatforms.slice(0, -1).map((p, i) => ({
-        x: p.x + p.w * 0.65,
-        y: p.y - 20,
-        w: 10,
-        h: 12,
-        kind: i % 3 === 1 ? "health" : "ammo",
-        taken: false,
-      }))
-    }
-  }
-  function reset(full: boolean) {
-    if (full) {
-      score = 0
-      lives = 3
-      checkpoint = 0
-    }
-    hp = 16
-    ammo = 12
-    time = 180
-    player = {
-      ...playerSpawnPosition(checkpoint, stagePlatforms),
-      w: 13,
-      h: 28,
-      vx: 0,
-      vy: 0,
-      grounded: false,
-      wall: 0,
-    }
-    cam = Math.max(0, player.x - 120)
-    particles = []
-    shots = []
-    attack = 0
-    resetPlayerMovementState(movement)
-    playerStride = 0
-    playerAirTime = 0
-    playerClimbDistance = 0
-    throwCooldown = 0
-    invincible = 1
-    knockbackTime = 0
-    knockbackVelocity = 0
-    hitEnemies.clear()
-    populate()
-  }
   const controller = new GameController({
     flow,
     view: {
@@ -289,7 +115,8 @@ export async function startGame() {
         overlay.querySelector("h2")!.innerHTML = title
         overlay.querySelector("p")!.textContent = subtitle
         overlay.querySelector("#start")!.innerHTML = button + " <span>→</span>"
-        overlay.querySelector(".overlay-kicker")!.textContent = "SHADOW OF THE DRAGON"
+        overlay.querySelector(".overlay-kicker")!.textContent =
+          "SHADOW OF THE DRAGON"
         overlay.querySelector("small")!.textContent = "PRESS ENTER TO CONTINUE"
       },
       hideOverlay: () => overlay.classList.add("hidden"),
@@ -297,21 +124,23 @@ export async function startGame() {
         document.querySelector(".stage-label strong")!.textContent = title
         document.querySelector(".stage-label small")!.textContent = context
       },
-      setStatus: (text) => { status.textContent = text },
+      setStatus: (text) => {
+        status.textContent = text
+      },
     },
-    getLives: () => lives,
-    setLives: (value) => { lives = value },
-    getScore: () => score,
-    getStageName: () => `0${activeLocation.id + 1} — ${activeLocation.name}`,
-    reset: (full) => reset(full),
+    getLives: () => runtime.lives,
+    setLives: (value) => {
+      runtime.lives = value
+    },
+    getScore: () => runtime.score,
+    getStageName: () =>
+      `0${runtime.activeLocation.id + 1} — ${runtime.activeLocation.name}`,
+    reset: (full) => runtime.reset(full),
     clearInput: () => input.clear(),
-    setMapCooldown: (seconds) => { mapCooldown = seconds },
-    prepareStage(location) {
-      activeLocation = location
-      checkpoint = 0
-      stagePlatforms = stages[location.id].terrain
-      reset(false)
+    setMapCooldown: (seconds) => {
+      runtime.mapCooldown = seconds
     },
+    prepareStage: (location) => runtime.prepareStage(location),
     playCue: (frequency) => beep(frequency),
   })
   const returnToMap = () => controller.returnToMap()
@@ -340,7 +169,6 @@ export async function startGame() {
       if (flow.state === "playing" || flow.state === "overworld") pause()
     },
   })
-  reset(true)
   returnToMap()
   document.querySelector("#sound")!.addEventListener("click", () => {
     sound = !sound
@@ -361,7 +189,7 @@ export async function startGame() {
   })
   function burst(x: number, y: number, color: string, n = 10) {
     for (let i = 0; i < n; i++)
-      particles.push({
+      runtime.particles.push({
         x,
         y,
         vx: (Math.random() - 0.5) * 160,
@@ -375,29 +203,41 @@ export async function startGame() {
     return controller.die()
   }
   function hurt(amount: number, from: number) {
-    const vitals = { hp, lives, invincible }
+    const vitals = {
+      hp: runtime.hp,
+      lives: runtime.lives,
+      invincible: runtime.invincible,
+    }
     const damage = damagePlayer(vitals, amount, flow)
     if (damage === "ignored")
-      return { ...vitals, knockbackTime, knockbackVelocity }
-    hp = vitals.hp
-    lives = vitals.lives
-    invincible = vitals.invincible
-    knockbackTime = 0.38
-    knockbackVelocity = player.x < from ? -155 : 155
-    player.vx = knockbackVelocity
-    player.vy = -175
-    movement.wallJumpLock = 0
-    movement.wallGrace = 0
-    movement.lastWall = 0
-    movement.jumpBuffer = 0
-    movement.coyote = 0
-    shake = 0.18
-    burst(player.x + 7, player.y + 12, "#f3cb9e")
+      return {
+        ...vitals,
+        knockbackTime: runtime.knockbackTime,
+        knockbackVelocity: runtime.knockbackVelocity,
+      }
+    runtime.hp = vitals.hp
+    runtime.lives = vitals.lives
+    runtime.invincible = vitals.invincible
+    runtime.knockbackTime = 0.38
+    runtime.knockbackVelocity = runtime.player.x < from ? -155 : 155
+    runtime.player.vx = runtime.knockbackVelocity
+    runtime.player.vy = -175
+    runtime.movement.wallJumpLock = 0
+    runtime.movement.wallGrace = 0
+    runtime.movement.lastWall = 0
+    runtime.movement.jumpBuffer = 0
+    runtime.movement.coyote = 0
+    runtime.shake = 0.18
+    burst(runtime.player.x + 7, runtime.player.y + 12, "#f3cb9e")
     beep(130, 0.15, "sawtooth")
     if (damage === "dead") controller.showDeath()
-    return { ...vitals, knockbackTime, knockbackVelocity }
+    return {
+      ...vitals,
+      knockbackTime: runtime.knockbackTime,
+      knockbackVelocity: runtime.knockbackVelocity,
+    }
   }
-  function hit(e: Enemy, result: DamageResult) {
+  function hit(e: RuntimeEnemy, result: DamageResult) {
     if (result.damage === 0) return
     e.flash = 0.14
     burst(e.x + e.w / 2, e.y + 12, "#ffdf8d")
@@ -405,14 +245,15 @@ export async function startGame() {
     if (result.defeated) {
       burst(e.x, e.y, "#e77b65", 20)
       if (e.kind === "boss") {
-        if (!completeBoss(flow, cleared, activeLocation.id)) return
-        controller.stageCleared(stages[activeLocation.id].boss)
+        if (!completeBoss(flow, runtime.cleared, runtime.activeLocation.id))
+          return
+        controller.stageCleared(stages[runtime.activeLocation.id].boss)
       }
     }
   }
   function update(dt: number) {
     const controls = input.snapshot()
-    age += dt
+    runtime.age += dt
     session.update(dt, {
       transition: (step) => {
         flow.updateTransition(step)
@@ -421,10 +262,10 @@ export async function startGame() {
       overworld: (dt) => {
         const result = stepOverworld({
           dt,
-          cooldown: mapCooldown,
-          position: mapPosition,
-          visual: mapVisual,
-          enemies: mapEnemies,
+          cooldown: runtime.mapCooldown,
+          position: runtime.mapPosition,
+          visual: runtime.mapVisual,
+          enemies: runtime.mapEnemies,
           input: {
             left: controls.left,
             right: controls.right,
@@ -432,24 +273,38 @@ export async function startGame() {
             down: controls.down,
           },
         })
-        mapPosition = result.position
-        mapCooldown = result.cooldown
+        runtime.mapPosition = result.position
+        runtime.mapCooldown = result.cooldown
         if (result.location) enterStage(result.location)
         input.clearPressed()
       },
       inactive: () => {
-      input.clearPressed()
+        input.clearPressed()
       },
       playing: (dt) => {
         const state = {
-          hp, ammo, score, lives, time, attack, attackId, throwCooldown,
-          invincible, knockbackTime, knockbackVelocity, playerStride,
-          playerAirTime, playerClimbDistance, checkpoint, shake, cam,
+          hp: runtime.hp,
+          ammo: runtime.ammo,
+          score: runtime.score,
+          lives: runtime.lives,
+          time: runtime.time,
+          attack: runtime.attack,
+          attackId: runtime.attackId,
+          throwCooldown: runtime.throwCooldown,
+          invincible: runtime.invincible,
+          knockbackTime: runtime.knockbackTime,
+          knockbackVelocity: runtime.knockbackVelocity,
+          playerStride: runtime.playerStride,
+          playerAirTime: runtime.playerAirTime,
+          playerClimbDistance: runtime.playerClimbDistance,
+          checkpoint: runtime.checkpoint,
+          shake: runtime.shake,
+          cam: runtime.cam,
         }
         const result = stepPlaying({
           dt,
-          age,
-          stageId: activeLocation.id,
+          age: runtime.age,
+          stageId: runtime.activeLocation.id,
           height: H,
           state,
           input: {
@@ -461,14 +316,14 @@ export async function startGame() {
             attackPressed: controls.attackPressed,
             throwPressed: controls.throwPressed,
           },
-          player,
-          movement,
-          enemies,
-          terrain: stagePlatforms,
-          pickups,
-          shots,
-          particles,
-          hitEnemies,
+          player: runtime.player,
+          movement: runtime.movement,
+          enemies: runtime.enemies,
+          terrain: runtime.stagePlatforms,
+          pickups: runtime.pickups,
+          shots: runtime.shots,
+          particles: runtime.particles,
+          hitEnemies: runtime.hitEnemies,
           onDeath: die,
           onJump: () => beep(560, 0.1, "triangle"),
           onCheckpoint: () => {
@@ -482,35 +337,58 @@ export async function startGame() {
             beep(950, 0.15, "triangle")
           },
           onEnemyHit: (enemy, damage) => {
-            score += damage.score
+            runtime.score += damage.score
             hit(enemy, damage)
           },
           onPlayerHit: (amount, sourceX) => {
-            hp = state.hp
-            lives = state.lives
-            invincible = state.invincible
-            knockbackTime = state.knockbackTime
-            knockbackVelocity = state.knockbackVelocity
+            runtime.hp = state.hp
+            runtime.lives = state.lives
+            runtime.invincible = state.invincible
+            runtime.knockbackTime = state.knockbackTime
+            runtime.knockbackVelocity = state.knockbackVelocity
             return hurt(amount, sourceX)
           },
         })
-        ;({ shots, particles } = result)
-        ;({
-          hp, ammo, score, lives, time, attack, attackId, throwCooldown,
-          invincible, knockbackTime, knockbackVelocity, playerStride,
-          playerAirTime, playerClimbDistance, checkpoint, shake, cam,
-        } = state)
-    input.clearPressed()
+        ;({ shots: runtime.shots, particles: runtime.particles } = result)
+        Object.assign(runtime, state)
+        input.clearPressed()
       },
     })
   }
   function draw() {
     drawGame({
-      ctx, texture, spriteSheet, ninjaEnemySheet, enemySheet, overworldSheet,
-      flow, activeLocation, stagePlatforms, cam, age, cleared, mapVisual, mapEnemies,
-      stageName: stageLabel(), shake, enemies, pickups, shots, player, movement,
-      invincible, attack, playerStride, playerAirTime, playerClimbDistance,
-      particles, hp, score, time, lives, ammo,
+      ctx,
+      texture,
+      spriteSheet,
+      ninjaEnemySheet,
+      enemySheet,
+      overworldSheet,
+      flow,
+      activeLocation: runtime.activeLocation,
+      stagePlatforms: runtime.stagePlatforms,
+      cam: runtime.cam,
+      age: runtime.age,
+      cleared: runtime.cleared,
+      mapVisual: runtime.mapVisual,
+      mapEnemies: runtime.mapEnemies,
+      stageName: `0${runtime.activeLocation.id + 1} — ${runtime.activeLocation.name}`,
+      shake: runtime.shake,
+      enemies: runtime.enemies,
+      pickups: runtime.pickups,
+      shots: runtime.shots,
+      player: runtime.player,
+      movement: runtime.movement,
+      invincible: runtime.invincible,
+      attack: runtime.attack,
+      playerStride: runtime.playerStride,
+      playerAirTime: runtime.playerAirTime,
+      playerClimbDistance: runtime.playerClimbDistance,
+      particles: runtime.particles,
+      hp: runtime.hp,
+      score: runtime.score,
+      time: runtime.time,
+      lives: runtime.lives,
+      ammo: runtime.ammo,
     })
   }
   const fpsLabel = document.querySelector("#fps")!
