@@ -16,6 +16,7 @@ import { WallJumpGrace } from "./wall-jump"
 import { ninjaFrame } from "./animation"
 import type { NinjaPose } from "./animation"
 import { patrolDirection } from "./enemies"
+import { GameFlow } from "./flow"
 import { Application, Sprite, Texture } from "pixi.js"
 import ryuUrl from "../../assets/ryu-sheet.png"
 import enemiesUrl from "../../assets/enemies-sheet.png"
@@ -111,10 +112,7 @@ export async function startGame() {
   const status = document.querySelector("#status")!
   const keys = new Set<string>()
   const pressed = new Set<string>()
-  let state:
-    "overworld" | "transition" | "playing" | "paused" | "dead" | "won" =
-    "overworld"
-  let pausedFrom: "overworld" | "playing" = "overworld"
+  const flow = new GameFlow()
   let activeLocation = locations[0]
   const cleared = new Set<number>()
   const mapEnemies: RoamingEnemy[] = [
@@ -128,7 +126,6 @@ export async function startGame() {
   let mapPosition = { ...spawn }
   const mapVisual = { ...spawn }
   let mapCooldown = 0
-  let transitionTime = 0
   let stagePlatforms = platforms
   function stageLabel() {
     return `0${activeLocation.id + 1} — ${activeLocation.name}`
@@ -136,14 +133,14 @@ export async function startGame() {
   function setLabel(label: string) {
     document.querySelector(".stage-label strong")!.textContent = label
     document.querySelector(".stage-label small")!.textContent =
-      state === "overworld"
+      flow.state === "overworld"
         ? "SHADOW PROVINCE / WORLD MAP"
         : "SIDE-SCROLLING MISSION"
     status.textContent = label
   }
   function returnToMap() {
     if (lives <= 0) reset(true)
-    state = "overworld"
+    flow.returnToMap()
     overlay.classList.add("hidden")
     keys.clear()
     pressed.clear()
@@ -155,8 +152,7 @@ export async function startGame() {
     checkpoint = 0
     stagePlatforms = stages[location.id].terrain
     reset(false)
-    state = "transition"
-    transitionTime = 0.7
+    flow.enterStage()
     keys.clear()
     pressed.clear()
     setLabel(stageLabel())
@@ -341,17 +337,14 @@ export async function startGame() {
     overlay.querySelector("small")!.textContent = "PRESS ENTER TO CONTINUE"
   }
   function begin() {
-    if (state === "playing" || state === "overworld" || state === "transition")
-      return
-    if (state === "paused") {
-      state = pausedFrom
-      if (state === "overworld") return returnToMap()
-    } else if (state === "won" || (state === "dead" && lives <= 0)) {
+    const result = flow.begin(lives)
+    if (result === "unchanged") return
+    if (result === "map") {
       if (lives <= 0) reset(true)
       return returnToMap()
-    } else {
+    }
+    if (result === "started") {
       reset(false)
-      state = "playing"
     }
     overlay.classList.add("hidden")
     keys.clear()
@@ -360,16 +353,15 @@ export async function startGame() {
     beep(440)
   }
   function pause() {
-    if (state === "playing" || state === "overworld") {
-      pausedFrom = state
-      state = "paused"
+    const result = flow.pause()
+    if (result === "paused") {
       keys.clear()
       show("PAUSED", "Take a breath. The shadows can wait.", "RESUME")
       status.textContent = "PAUSED"
-    } else if (state === "paused") begin()
+    } else if (result === "resumed") begin()
   }
   document.querySelector("#world-map")!.addEventListener("click", () => {
-    if (state !== "transition") returnToMap()
+    if (flow.state !== "transition") returnToMap()
   })
   document.querySelector("#start")!.addEventListener("click", begin)
   const valid = [
@@ -394,7 +386,7 @@ export async function startGame() {
     if (!valid.includes(e.code)) return
     e.preventDefault()
     if (!e.repeat) {
-      if (e.code === "KeyM" && state !== "transition") {
+      if (e.code === "KeyM" && flow.state !== "transition") {
         returnToMap()
         return
       }
@@ -414,10 +406,10 @@ export async function startGame() {
   window.addEventListener("blur", () => {
     keys.clear()
     pressed.clear()
-    if (state === "playing" || state === "overworld") pause()
+    if (flow.state === "playing" || flow.state === "overworld") pause()
   })
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden && (state === "playing" || state === "overworld"))
+    if (document.hidden && (flow.state === "playing" || flow.state === "overworld"))
       pause()
   })
   document
@@ -461,9 +453,9 @@ export async function startGame() {
       })
   }
   function die() {
-    if (state !== "playing") return
+    if (flow.state !== "playing") return
     lives--
-    state = "dead"
+    flow.state = "dead"
     beep(100, 0.4, "sawtooth")
     show(
       lives > 0 ? "FALLEN" : "GAME OVER",
@@ -501,7 +493,7 @@ export async function startGame() {
       burst(e.x, e.y, "#e77b65", 20)
       if (e.kind === "boss") {
         cleared.add(activeLocation.id)
-        state = "won"
+        flow.state = "won"
         show(
           "DAWN BREAKS",
           stages[activeLocation.id].boss +
@@ -533,7 +525,7 @@ export async function startGame() {
       keys.add(k)
       if (!previousPad.has(k)) {
         if (k === "Enter") {
-          if (state === "playing" || state === "overworld") pause()
+          if (flow.state === "playing" || flow.state === "overworld") pause()
           else begin()
         } else pressed.add(k)
       }
@@ -543,13 +535,12 @@ export async function startGame() {
   function update(dt: number) {
     gamepad()
     age += dt
-    if (state === "transition") {
-      transitionTime -= dt
-      if (transitionTime <= 0) state = "playing"
+    if (flow.state === "transition") {
+      flow.updateTransition(dt)
       pressed.clear()
       return
     }
-    if (state === "overworld") {
+    if (flow.state === "overworld") {
       mapCooldown -= dt
       mapVisual.x += (mapPosition.x - mapVisual.x) * Math.min(1, dt * 22)
       mapVisual.y += (mapPosition.y - mapVisual.y) * Math.min(1, dt * 22)
@@ -578,7 +569,7 @@ export async function startGame() {
       pressed.clear()
       return
     }
-    if (state !== "playing") {
+    if (flow.state !== "playing") {
       pressed.clear()
       return
     }
@@ -1014,20 +1005,20 @@ export async function startGame() {
   }
   function draw() {
     if (
-      state === "overworld" ||
-      state === "transition" ||
-      (state === "paused" && pausedFrom === "overworld")
+      flow.state === "overworld" ||
+      flow.state === "transition" ||
+      (flow.state === "paused" && flow.pausedFrom === "overworld")
     ) {
       drawOverworld(ctx, overworldSheet, mapVisual, age, cleared, mapEnemies)
-      if (state === "transition") {
-        rect(0, 0, W, H, `rgba(5,12,22,${1 - transitionTime / 0.7})`)
+      if (flow.state === "transition") {
+        rect(0, 0, W, H, `rgba(5,12,22,${1 - flow.transitionTime / 0.7})`)
         text(stageLabel(), 90, 132, "#f5e2b4", 12)
       }
       texture.source.update()
       return
     }
     ctx.save()
-    if (shake > 0 && state === "playing")
+    if (shake > 0 && flow.state === "playing")
       ctx.translate(Math.round(Math.sin(age * 120) * 2), 0)
     if (activeLocation.id === 0) {
       background()
@@ -1171,7 +1162,7 @@ export async function startGame() {
             : "#44343d",
         )
     }
-    if (state === "playing" && player.x < 200 && time > 169) {
+    if (flow.state === "playing" && player.x < 200 && time > 169) {
       text(
         [
           "MOVE →   Z JUMP   X SLASH",
