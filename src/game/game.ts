@@ -4,11 +4,7 @@ import overworldUrl from "../../assets/overworld-sheet.png"
 import {
   drawOverworld,
   locations,
-  locationAt,
   spawn,
-  walkable,
-  roamingEncounter,
-  updateRoamingEnemies,
   type RoamingEnemy,
 } from "./overworld"
 import type { Location } from "./overworld"
@@ -19,7 +15,7 @@ import { patrolDirection } from "./enemies"
 import { resolveShurikenHit, resolveSwordHit, type DamageResult } from "./combat"
 import { collectPickup, consumeAmmo, playerSpawnPosition, updateCheckpoint, type Pickup } from "./pickups"
 import { GameFlow } from "./flow"
-import { GameSession } from "./game-session"
+import { GameSession, stepOverworld } from "./game-session"
 import { Application, Sprite, Texture } from "pixi.js"
 import ryuUrl from "../../assets/ryu-sheet.png"
 import enemiesUrl from "../../assets/enemies-sheet.png"
@@ -536,32 +532,23 @@ export async function startGame() {
         pressed.clear()
       },
       overworld: (dt) => {
-      mapCooldown -= dt
-      mapVisual.x += (mapPosition.x - mapVisual.x) * Math.min(1, dt * 22)
-      mapVisual.y += (mapPosition.y - mapVisual.y) * Math.min(1, dt * 22)
-      updateRoamingEnemies(mapEnemies, dt)
-      const encounter = mapCooldown <= 0 ? roamingEncounter(mapEnemies, mapPosition) : undefined
-      if (encounter) {
-        enterStage(encounter)
+        const result = stepOverworld({
+          dt,
+          cooldown: mapCooldown,
+          position: mapPosition,
+          visual: mapVisual,
+          enemies: mapEnemies,
+          input: {
+            left: keys.has("ArrowLeft") || keys.has("KeyA"),
+            right: keys.has("ArrowRight") || keys.has("KeyD"),
+            up: keys.has("ArrowUp") || keys.has("KeyW"),
+            down: keys.has("ArrowDown") || keys.has("KeyS"),
+          },
+        })
+        mapPosition = result.position
+        mapCooldown = result.cooldown
+        if (result.location) enterStage(result.location)
         pressed.clear()
-        return
-      }
-      if (mapCooldown <= 0) {
-        const dx =
-          Number(keys.has("ArrowRight") || keys.has("KeyD")) -
-          Number(keys.has("ArrowLeft") || keys.has("KeyA"))
-        const dy = dx
-          ? 0
-          : Number(keys.has("ArrowDown") || keys.has("KeyS")) -
-            Number(keys.has("ArrowUp") || keys.has("KeyW"))
-        if ((dx || dy) && walkable(mapPosition.x + dx, mapPosition.y + dy)) {
-          mapPosition = { x: mapPosition.x + dx, y: mapPosition.y + dy }
-          mapCooldown = 0.14
-          const location = locationAt(mapPosition.x, mapPosition.y)
-          if (location) enterStage(location)
-        }
-      }
-      pressed.clear()
       },
       inactive: () => {
       pressed.clear()
