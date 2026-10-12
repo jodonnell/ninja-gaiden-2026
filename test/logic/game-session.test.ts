@@ -5,6 +5,7 @@ import {
   damagePlayer,
   stepParticles,
   stepProjectiles,
+  stepEnemies,
   stepOverworld,
   type GameSessionHandlers,
 } from "../../src/game/game-session"
@@ -223,5 +224,54 @@ describe("projectile and particle simulation", () => {
 
     expect(remaining).toHaveLength(1)
     expect(remaining[0]).toMatchObject({ x: 2, y: -1, vy: 55, life: 0.8 })
+  })
+})
+
+describe("stage enemy simulation", () => {
+  const baseArgs = (enemy: Parameters<typeof stepEnemies>[0]["enemies"][number]) => ({
+    dt: 1 / 60,
+    age: 1,
+    stageId: 0,
+    player: { x: 40, y: 100, w: 13, h: 28, vx: 0, vy: 0, grounded: false, wall: 0 },
+    facing: 1,
+    enemies: [enemy],
+    terrain: [],
+    attackActive: false,
+    attackId: 1,
+    hitEnemies: new Map(),
+    onEnemyHit: vi.fn(),
+    onPlayerHit: vi.fn(),
+    onHostileShot: vi.fn(),
+  })
+
+  it("fires a monk projectile toward the player when its attack timer expires", () => {
+    const monk = {
+      x: 100, y: 100, w: 14, h: 27, vx: 0, vy: 0, grounded: false, wall: 0,
+      hp: 2, kind: "monk" as const, stride: 0, home: 100, dir: 1, timer: 2.5, flash: 0,
+    }
+    const args = baseArgs(monk)
+
+    stepEnemies(args)
+
+    expect(args.onHostileShot).toHaveBeenCalledWith(expect.objectContaining({
+      hostile: true,
+      vx: -125,
+      life: 3,
+    }))
+    expect(monk.timer).toBe(0)
+  })
+
+  it("resolves a sword hit and reports contact damage during one enemy step", () => {
+    const guard = {
+      x: 50, y: 100, w: 14, h: 27, vx: 0, vy: 0, grounded: false, wall: 0,
+      hp: 2, kind: "guard" as const, stride: 0, home: 50, dir: 1, timer: 0, flash: 0,
+    }
+    const args = { ...baseArgs(guard), attackActive: true }
+
+    stepEnemies(args)
+
+    expect(guard.hp).toBe(1)
+    expect(args.onEnemyHit).toHaveBeenCalledWith(guard, expect.objectContaining({ damage: 1 }))
+    expect(args.onPlayerHit).toHaveBeenCalledWith(2, guard.x)
   })
 })

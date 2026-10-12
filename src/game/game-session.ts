@@ -1,6 +1,12 @@
 import type { GameFlow } from "./flow"
-import { resolveShurikenHit, type Combatant, type DamageResult } from "./combat"
-import { overlaps, type Rect } from "./world"
+import {
+  resolveShurikenHit,
+  resolveSwordHit,
+  type Combatant,
+  type DamageResult,
+} from "./combat"
+import { patrolDirection } from "./enemies"
+import { move, overlaps, type Body, type Rect } from "./world"
 import {
   locationAt,
   roamingEncounter,
@@ -30,6 +36,14 @@ export type SessionParticle = {
   vx: number
   vy: number
   life: number
+}
+
+export type SessionEnemy = Body & Combatant & {
+  stride: number
+  home: number
+  dir: number
+  timer: number
+  flash: number
 }
 
 export type SessionVitals = { hp: number; lives: number; invincible: number }
@@ -108,6 +122,115 @@ export function stepParticles<T extends SessionParticle>(
     particle.life -= dt
   }
   return particles.filter((particle) => particle.life > 0)
+}
+
+/** Advances nearby stage enemies and resolves their attacks and contact. */
+export function stepEnemies<TEnemy extends SessionEnemy>(args: {
+  dt: number
+  age: number
+  stageId: number
+  facing: number
+  player: Body
+  enemies: TEnemy[]
+  terrain: Rect[]
+  attackActive: boolean
+  attackId: number
+  hitEnemies: Map<Combatant, number>
+  onEnemyHit(enemy: TEnemy, result: DamageResult): void
+  onPlayerHit(amount: number, sourceX: number): void
+  onHostileShot(shot: SessionProjectile): void
+}): void {
+  const {
+    dt,
+    age,
+    stageId,
+    facing,
+    player,
+    enemies,
+    terrain,
+    attackActive,
+    attackId,
+    hitEnemies,
+    onEnemyHit,
+    onPlayerHit,
+    onHostileShot,
+  } = args
+  const blade = {
+    x: facing > 0 ? player.x + 8 : player.x - 28,
+    y: player.y + 3,
+    w: 33,
+    h: 25,
+  }
+
+  for (const enemy of enemies) {
+    if (enemy.hp <= 0 || Math.abs(enemy.x - player.x) > 550) continue
+    enemy.flash -= dt
+    enemy.timer += dt
+    if (enemy.kind === "bat") {
+      enemy.dir = player.x < enemy.x ? -1 : 1
+      enemy.x += enemy.dir * 42 * dt
+      enemy.y = 150 + Math.sin(enemy.timer * 4 + enemy.home) * 38
+    } else if (enemy.kind === "bird") {
+      enemy.x -= (stageId === 1 ? 78 : 65) * dt
+      if (stageId === 1) enemy.y = 115 + Math.sin(enemy.timer * 2.8) * 62
+      else enemy.y += Math.sin(age * 5 + enemy.home) * 45 * dt
+    } else {
+      if (enemy.kind === "boss") {
+        if (player.x > 2820) {
+          enemy.dir = player.x < enemy.x ? -1 : 1
+          enemy.vx = enemy.dir * (stageId === 1 ? 95 : stageId === 2 ? 28 : 60)
+          if (enemy.timer > (stageId === 1 ? 1.25 : 1.8)) {
+            enemy.timer = 0
+            enemy.vy = stageId === 2 ? -130 : -240
+            for (const velocityY of stageId === 2 ? [-55, 0, 55] : [0])
+              onHostileShot({
+                x: enemy.x,
+                y: enemy.y + 15,
+                w: 8,
+                h: 8,
+                vx: enemy.dir * 155,
+                vy: velocityY,
+                hostile: true,
+                life: 3,
+              })
+          }
+        }
+      } else if (enemy.kind === "monk") {
+        enemy.vx = 0
+        enemy.dir = player.x < enemy.x ? -1 : 1
+        if (enemy.timer > 2.2 && Math.abs(enemy.x - player.x) < 310) {
+          enemy.timer = 0
+          onHostileShot({
+            x: enemy.x + enemy.dir * 10,
+            y: enemy.y + 10,
+            w: 8,
+            h: 8,
+            vx: enemy.dir * 125,
+            vy: 0,
+            hostile: true,
+            life: 3,
+          })
+        }
+      } else {
+        enemy.dir = patrolDirection(enemy, enemy.home, enemy.dir, terrain)
+        enemy.vx = enemy.dir * (enemy.kind === "hopper" ? 55 : 35)
+        if (enemy.kind === "hopper" && enemy.grounded && enemy.timer > 1.4) {
+          enemy.vy = -230
+          enemy.timer = 0
+        }
+      }
+      enemy.vy += 730 * dt
+      const previousEnemyX = enemy.x
+      move(enemy, dt, terrain)
+      if (enemy.grounded) enemy.stride += Math.abs(enemy.x - previousEnemyX)
+    }
+    if (attackActive && overlaps(blade, enemy)) {
+      const result = resolveSwordHit(enemy, attackId, hitEnemies)
+      if (result) onEnemyHit(enemy, result)
+    }
+    if (enemy.hp > 0 && overlaps(player, enemy))
+      onPlayerHit(enemy.kind === "boss" ? 3 : 2, enemy.x)
+  }
 }
 
 /** Advances map encounters, player movement, and the visual map marker. */

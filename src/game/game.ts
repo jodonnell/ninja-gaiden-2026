@@ -11,8 +11,7 @@ import type { Location } from "./overworld"
 import { createPlayerMovementState, resetPlayerMovementState, updatePlayerMovement } from "./player-movement"
 import { ninjaFrame } from "./animation"
 import type { NinjaPose } from "./animation"
-import { patrolDirection } from "./enemies"
-import { resolveSwordHit, type DamageResult } from "./combat"
+import type { DamageResult } from "./combat"
 import { collectPickup, consumeAmmo, playerSpawnPosition, updateCheckpoint, type Pickup } from "./pickups"
 import { GameFlow } from "./flow"
 import {
@@ -22,6 +21,7 @@ import {
   stepOverworld,
   stepParticles,
   stepProjectiles,
+  stepEnemies,
 } from "./game-session"
 import { Application, Sprite, Texture } from "pixi.js"
 import ryuUrl from "../../assets/ryu-sheet.png"
@@ -32,7 +32,6 @@ import {
   WORLD_END,
   platforms,
   overlaps,
-  move,
 } from "./world"
 import type { Body, Rect } from "./world"
 
@@ -641,84 +640,21 @@ export async function startGame() {
         beep(950, 0.15, "triangle")
       }
     }
-    const blade = {
-      x: movement.facing > 0 ? player.x + 8 : player.x - 28,
-      y: player.y + 3,
-      w: 33,
-      h: 25,
-    }
-    for (const e of enemies) {
-      if (e.hp <= 0 || Math.abs(e.x - player.x) > 550) continue
-      e.flash -= dt
-      e.timer += dt
-      if (e.kind === "bat") {
-        e.dir = player.x < e.x ? -1 : 1
-        e.x += e.dir * 42 * dt
-        e.y = 150 + Math.sin(e.timer * 4 + e.home) * 38
-      } else if (e.kind === "bird") {
-        e.x -= (activeLocation.id === 1 ? 78 : 65) * dt
-        if (activeLocation.id === 1) e.y = 115 + Math.sin(e.timer * 2.8) * 62
-        else e.y += Math.sin(age * 5 + e.home) * 45 * dt
-      } else {
-        if (e.kind === "boss") {
-          if (player.x > 2820) {
-            e.dir = player.x < e.x ? -1 : 1
-            e.vx =
-              e.dir *
-              (activeLocation.id === 1 ? 95 : activeLocation.id === 2 ? 28 : 60)
-            if (e.timer > (activeLocation.id === 1 ? 1.25 : 1.8)) {
-              e.timer = 0
-              e.vy = activeLocation.id === 2 ? -130 : -240
-              for (const velocityY of activeLocation.id === 2
-                ? [-55, 0, 55]
-                : [0])
-                shots.push({
-                  x: e.x,
-                  y: e.y + 15,
-                  w: 8,
-                  h: 8,
-                  vx: e.dir * 155,
-                  vy: velocityY,
-                  hostile: true,
-                  life: 3,
-                })
-            }
-          }
-        } else if (e.kind === "monk") {
-          e.vx = 0
-          e.dir = player.x < e.x ? -1 : 1
-          if (e.timer > 2.2 && Math.abs(e.x - player.x) < 310) {
-            e.timer = 0
-            shots.push({
-              x: e.x + e.dir * 10,
-              y: e.y + 10,
-              w: 8,
-              h: 8,
-              vx: e.dir * 125,
-              vy: 0,
-              hostile: true,
-              life: 3,
-            })
-          }
-        } else {
-          e.dir = patrolDirection(e, e.home, e.dir, stagePlatforms)
-          e.vx = e.dir * (e.kind === "hopper" ? 55 : 35)
-          if (e.kind === "hopper" && e.grounded && e.timer > 1.4) {
-            e.vy = -230
-            e.timer = 0
-          }
-        }
-        e.vy += 730 * dt
-        const previousEnemyX = e.x
-        move(e, dt, stagePlatforms)
-        if (e.grounded) e.stride += Math.abs(e.x - previousEnemyX)
-      }
-      if (attack > 0.04 && overlaps(blade, e)) {
-        const result = resolveSwordHit(e, attackId, hitEnemies)
-        if (result) hit(e, result)
-      }
-      if (e.hp > 0 && overlaps(player, e)) hurt(e.kind === "boss" ? 3 : 2, e.x)
-    }
+    stepEnemies({
+      dt,
+      age,
+      stageId: activeLocation.id,
+      player,
+      facing: movement.facing,
+      enemies,
+      terrain: stagePlatforms,
+      attackActive: attack > 0.04,
+      attackId,
+      hitEnemies,
+      onEnemyHit: hit,
+      onPlayerHit: hurt,
+      onHostileShot: (shot) => shots.push(shot),
+    })
     shots = stepProjectiles(shots, player, enemies, dt, hit, (x) => hurt(2, x))
     particles = stepParticles(particles, dt)
     cam +=
